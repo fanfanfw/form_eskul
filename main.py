@@ -116,6 +116,31 @@ async def submit_form(
     try:
         cursor = conn.cursor()
         
+        # Ambil data siswa dan eskul untuk validasi
+        cursor.execute("""
+            SELECT s.kelas, s.nama, e.nama_eskul 
+            FROM siswa s, eskul e 
+            WHERE s.id = %s AND e.id = %s
+        """, (siswa_id, eskul_id))
+        
+        result = cursor.fetchone()
+        if not result:
+            raise HTTPException(status_code=404, detail="Siswa atau eskul tidak ditemukan")
+        
+        kelas = result['kelas'] or ''
+        nama_siswa = result['nama']
+        nama_eskul = result['nama_eskul']
+        
+        # Validasi eskul berdasarkan kelas
+        restricted_eskul = ['Pencak Silat', 'Futsal', 'Angklung']
+        is_kelas_2 = 'kelas 2' in kelas.lower()
+        
+        if is_kelas_2 and nama_eskul in restricted_eskul:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Siswa kelas 2 tidak dapat memilih {nama_eskul}. Eskul ini hanya untuk kelas 3 ke atas."
+            )
+        
         # Update eskul siswa
         cursor.execute(
             "UPDATE siswa SET eskul = %s WHERE id = %s",
@@ -128,20 +153,14 @@ async def submit_form(
         
         conn.commit()
         
-        # Ambil data siswa dan eskul untuk konfirmasi
-        cursor.execute("""
-            SELECT s.nama, e.nama_eskul, s.kelas 
-            FROM siswa s 
-            JOIN eskul e ON s.eskul = e.id 
-            WHERE s.id = %s
-        """, (siswa_id,))
-        
-        result = cursor.fetchone()
-        
         return {
             "success": True,
-            "message": f"Berhasil mendaftarkan {result['nama']} ke eskul {result['nama_eskul']}",
-            "data": result
+            "message": f"Berhasil mendaftarkan {nama_siswa} ke eskul {nama_eskul}",
+            "data": {
+                "nama": nama_siswa,
+                "nama_eskul": nama_eskul,
+                "kelas": kelas
+            }
         }
         
     except psycopg2.Error as e:

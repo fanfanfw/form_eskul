@@ -53,13 +53,13 @@
                             <div id="tableContainer" style="display: none;">
                                 <!-- Export Buttons -->
                                 <div class="mb-3">
-                                    <button class="btn btn-success me-2" onclick="exportToCSV()">
+                                    <button class="btn btn-success me-2" id="exportBtn" onclick="exportToCSV()">
                                         <i class="fas fa-file-csv me-1"></i> Export CSV
                                     </button>
-                                    <button class="btn btn-primary me-2" onclick="printTable()">
+                                    <button class="btn btn-primary me-2" id="printBtn" onclick="printTable()">
                                         <i class="fas fa-print me-1"></i> Print
                                     </button>
-                                    <button class="btn btn-info" onclick="refreshData()">
+                                    <button class="btn btn-info" id="refreshBtn" onclick="refreshData()">
                                         <i class="fas fa-sync-alt me-1"></i> Refresh
                                     </button>
                                 </div>
