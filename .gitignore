@@ -1,0 +1,10 @@
+__pycache__
+.vscode/
+enveskul/
+*.pyc
+*.pyo
+*.pyd
+__pycache__/
+*.db
+
+config.py
