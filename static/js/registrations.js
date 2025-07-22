@@ -1,17 +1,29 @@
 // JavaScript untuk halaman registrasi
 $(document).ready(function() {
+    console.log('Registrations page loaded');
     loadRegistrations();
 
     async function loadRegistrations() {
         try {
+            console.log('Fetching registrations...');
             const response = await fetch('/api/registrations');
             const data = await response.json();
             
-            populateTable(data.registrations);
-            updateSummary(data.registrations);
+            console.log('✅ API Response received:', data);
+            console.log('📊 Raw data length:', data.registrations ? data.registrations.length : 'undefined');
+            
+            if (data.registrations && data.registrations.length > 0) {
+                console.log('🔍 First 3 records:', data.registrations.slice(0, 3));
+                
+                populateTable(data.registrations);
+                updateSummary(data.registrations);
+            } else {
+                console.error('❌ No registrations data found');
+                showError('Tidak ada data registrasi ditemukan');
+            }
             
         } catch (error) {
-            console.error('Error loading registrations:', error);
+            console.error('❌ Error loading registrations:', error);
             showError('Gagal memuat data registrasi');
         }
     }
@@ -28,7 +40,14 @@ $(document).ready(function() {
             const jenisKelaminValue = reg.jeniskelamin || 'Tidak diketahui';
             const kelasValue = reg.kelas || 'Tidak diketahui';
             
-            const eskulText = reg.nama_eskul || '<span class="badge bg-warning">Belum Daftar</span>';
+            // Better handling for eskul display
+            let eskulText = '<span class="badge bg-warning">Belum Daftar</span>';
+            if (reg.nama_eskul && 
+                reg.nama_eskul !== null && 
+                reg.nama_eskul !== 'null' && 
+                reg.nama_eskul.toString().trim() !== '') {
+                eskulText = `<span class="badge bg-success">${reg.nama_eskul}</span>`;
+            }
             
             const row = `
                 <tr>
@@ -84,27 +103,65 @@ $(document).ready(function() {
     }
 
     function updateSummary(registrations) {
+        console.log('🧮 Starting updateSummary with data:', registrations);
+        
+        if (!registrations || !Array.isArray(registrations)) {
+            console.error('❌ Invalid registrations data:', registrations);
+            return;
+        }
+        
         // Filter out any invalid registrations and handle nulls
         const validRegistrations = registrations.filter(reg => reg && reg.nama);
+        console.log('✅ Valid registrations count:', validRegistrations.length);
         
         const totalSiswa = validRegistrations.length;
-        const sudahDaftar = validRegistrations.filter(reg => reg.nama_eskul && reg.nama_eskul.trim() !== '').length;
-        const belumDaftar = totalSiswa - sudahDaftar;
+        console.log('📊 Total siswa:', totalSiswa);
         
-        // Get unique classes, filtering out null/undefined values
+        // Count students who have registered for eskul - SIMPLIFIED CHECK
+        let sudahDaftarCount = 0;
+        validRegistrations.forEach((reg, index) => {
+            const eskulValue = reg.nama_eskul;
+            const isRegistered = eskulValue && 
+                               eskulValue !== null && 
+                               eskulValue !== 'null' && 
+                               eskulValue !== '' &&
+                               eskulValue.toString().trim() !== '';
+            
+            if (index < 5) { // Log first 5 for debugging
+                console.log(`👤 ${reg.nama}: eskul="${eskulValue}" (type: ${typeof eskulValue}) -> registered: ${isRegistered}`);
+            }
+            
+            if (isRegistered) {
+                sudahDaftarCount++;
+            }
+        });
+        
+        const belumDaftar = totalSiswa - sudahDaftarCount;
+        
+        // Get unique classes
         const validKelas = validRegistrations
             .map(reg => reg.kelas)
-            .filter(kelas => kelas && kelas.trim() !== '');
+            .filter(kelas => kelas && kelas.toString().trim() !== '');
         const totalKelas = [...new Set(validKelas)].length;
 
-        // Update the display with proper number handling
-        $('#totalSiswa').text(totalSiswa || 0);
-        $('#sudahDaftar').text(sudahDaftar || 0);
-        $('#belumDaftar').text(belumDaftar || 0);
-        $('#totalKelas').text(totalKelas || 0);
+        console.log('📈 Final counts:');
+        console.log(`   Total Siswa: ${totalSiswa}`);
+        console.log(`   Sudah Daftar: ${sudahDaftarCount}`);
+        console.log(`   Belum Daftar: ${belumDaftar}`);
+        console.log(`   Total Kelas: ${totalKelas}`);
 
-        // Add animation to numbers
-        animateNumbers();
+        // Update the display immediately without animation for debugging
+        $('#totalSiswa').text(totalSiswa);
+        $('#sudahDaftar').text(sudahDaftarCount);
+        $('#belumDaftar').text(belumDaftar);
+        $('#totalKelas').text(totalKelas);
+
+        console.log('✅ Summary updated in DOM');
+        
+        // Then add animation
+        setTimeout(() => {
+            animateNumbers();
+        }, 100);
     }
 
     function animateNumbers() {
