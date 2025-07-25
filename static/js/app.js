@@ -143,7 +143,7 @@ document.addEventListener('DOMContentLoaded', function() {
             data.siswa.forEach(siswa => {
                 const option = document.createElement('option');
                 option.value = siswa.id;
-                option.textContent = `${siswa.nama} (${siswa.nis})`;
+                option.textContent = siswa.nama; // Hanya tampilkan nama tanpa NIS
                 siswaSelect.appendChild(option);
             });
             
