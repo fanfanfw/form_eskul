@@ -12,7 +12,7 @@ conn = psycopg2.connect(
 cur = conn.cursor()
 
 # Buka file CSV
-with open('dataset.csv', newline='', encoding='utf-8') as csvfile:
+with open('kelas1.csv', newline='', encoding='utf-8') as csvfile:
     reader = csv.DictReader(csvfile)
     for row in reader:
         # Masukkan data ke tabel siswa

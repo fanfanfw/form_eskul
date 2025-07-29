@@ -133,12 +133,13 @@ async def submit_form(
         
         # Validasi eskul berdasarkan kelas
         restricted_eskul = ['Pencak Silat', 'Futsal', 'Angklung']
+        is_kelas_1 = 'kelas 1' in kelas.lower()
         is_kelas_2 = 'kelas 2' in kelas.lower()
         
-        if is_kelas_2 and nama_eskul in restricted_eskul:
+        if (is_kelas_1 or is_kelas_2) and nama_eskul in restricted_eskul:
             raise HTTPException(
                 status_code=400, 
-                detail=f"Siswa kelas 2 tidak dapat memilih {nama_eskul}. Eskul ini hanya untuk kelas 3 ke atas."
+                detail=f"Siswa kelas 1 dan kelas 2 tidak dapat memilih {nama_eskul}. Eskul ini hanya untuk kelas 3 ke atas."
             )
         
         # Update eskul siswa
