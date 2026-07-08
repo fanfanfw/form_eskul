@@ -43,6 +43,8 @@ def main():
                 ON DELETE SET NULL
         )
     """)
+    cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS siswa_nis_unique ON siswa (nis)")
+    cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS eskul_nama_unique ON eskul (nama_eskul)")
 
     conn.commit()
     cursor.close()

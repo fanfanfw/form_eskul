@@ -1,12 +1,14 @@
-from fastapi import FastAPI, Request, Form, HTTPException
+from fastapi import FastAPI, Request, Form, HTTPException, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import os
+import io
 from typing import List, Dict, Any
 import json
+import pandas as pd
 
 try:
     from config import *
@@ -108,6 +110,189 @@ async def get_eskul():
         eskul_list = cursor.fetchall()
         return {"eskul": eskul_list}
     except psycopg2.Error as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+    finally:
+        conn.close()
+
+def read_students_excel(file_content: bytes):
+    df = pd.read_excel(io.BytesIO(file_content), dtype=str).fillna("")
+    required_columns = ["NIS", "NISN", "Nama", "JenisKelamin", "Kelas"]
+    missing_columns = [column for column in required_columns if column not in df.columns]
+    if missing_columns:
+        raise HTTPException(status_code=400, detail=f"Kolom wajib tidak ada: {', '.join(missing_columns)}")
+
+    rows = []
+    seen = set()
+    duplicate_file = []
+    for _, row in df.iterrows():
+        nis = str(row["NIS"]).strip()
+        if not nis:
+            continue
+        student = {
+            "nis": nis,
+            "nisn": str(row["NISN"]).strip(),
+            "nama": str(row["Nama"]).strip(),
+            "jeniskelamin": str(row["JenisKelamin"]).strip().upper(),
+            "kelas": str(row["Kelas"]).strip(),
+        }
+        if nis in seen:
+            duplicate_file.append(student)
+            continue
+        seen.add(nis)
+        rows.append(student)
+    return rows, duplicate_file
+
+@app.post("/api/students/preview-import")
+async def preview_students_import(file: UploadFile = File(...)):
+    if not file.filename.lower().endswith(".xlsx"):
+        raise HTTPException(status_code=400, detail="Upload file Excel .xlsx")
+
+    rows, duplicate_file = read_students_excel(await file.read())
+    conn = get_db_connection()
+    if not conn:
+        raise HTTPException(status_code=500, detail="Database connection failed")
+
+    try:
+        cursor = conn.cursor()
+        nis_list = [row["nis"] for row in rows]
+        existing = set()
+        if nis_list:
+            cursor.execute("SELECT nis FROM siswa WHERE nis = ANY(%s)", (nis_list,))
+            existing = {row["nis"] for row in cursor.fetchall()}
+        return {
+            "total": len(rows),
+            "new_count": len([row for row in rows if row["nis"] not in existing]),
+            "duplicate_database_count": len(existing),
+            "duplicate_file_count": len(duplicate_file),
+            "preview": rows[:20],
+            "duplicate_database": sorted(existing)[:20],
+            "duplicate_file": duplicate_file[:20],
+        }
+    finally:
+        conn.close()
+
+@app.post("/api/students/import")
+async def import_students(file: UploadFile = File(...)):
+    if not file.filename.lower().endswith(".xlsx"):
+        raise HTTPException(status_code=400, detail="Upload file Excel .xlsx")
+
+    rows, duplicate_file = read_students_excel(await file.read())
+    conn = get_db_connection()
+    if not conn:
+        raise HTTPException(status_code=500, detail="Database connection failed")
+
+    inserted = 0
+    skipped = len(duplicate_file)
+    try:
+        cursor = conn.cursor()
+        for row in rows:
+            cursor.execute(
+                """
+                INSERT INTO siswa (nis, nisn, nama, jeniskelamin, kelas)
+                SELECT %s, %s, %s, %s, %s
+                WHERE NOT EXISTS (SELECT 1 FROM siswa WHERE nis = %s)
+                """,
+                (row["nis"], row["nisn"], row["nama"], row["jeniskelamin"], row["kelas"], row["nis"]),
+            )
+            if cursor.rowcount:
+                inserted += 1
+            else:
+                skipped += 1
+        conn.commit()
+        return {"inserted": inserted, "skipped": skipped}
+    except psycopg2.Error as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+    finally:
+        conn.close()
+
+@app.get("/api/eskul/manage")
+async def manage_eskul_list():
+    conn = get_db_connection()
+    if not conn:
+        raise HTTPException(status_code=500, detail="Database connection failed")
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT e.id, e.nama_eskul, COUNT(s.id) AS siswa_count
+            FROM eskul e
+            LEFT JOIN siswa s ON s.eskul = e.id
+            GROUP BY e.id, e.nama_eskul
+            ORDER BY e.nama_eskul
+        """)
+        return {"eskul": cursor.fetchall()}
+    except psycopg2.Error as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+    finally:
+        conn.close()
+
+@app.post("/api/eskul/create")
+async def create_eskul(nama_eskul: str = Form(...)):
+    conn = get_db_connection()
+    if not conn:
+        raise HTTPException(status_code=500, detail="Database connection failed")
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO eskul (nama_eskul)
+            SELECT %s
+            WHERE NOT EXISTS (SELECT 1 FROM eskul WHERE nama_eskul = %s)
+            RETURNING id, nama_eskul
+        """, (nama_eskul.strip(), nama_eskul.strip()))
+        created = cursor.fetchone()
+        if not created:
+            raise HTTPException(status_code=400, detail="Nama eskul sudah ada")
+        conn.commit()
+        return {"eskul": created}
+    except psycopg2.Error as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+    finally:
+        conn.close()
+
+@app.post("/api/eskul/{eskul_id}/update")
+async def update_eskul(eskul_id: int, nama_eskul: str = Form(...)):
+    conn = get_db_connection()
+    if not conn:
+        raise HTTPException(status_code=500, detail="Database connection failed")
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1 FROM eskul WHERE nama_eskul = %s AND id <> %s", (nama_eskul.strip(), eskul_id))
+        if cursor.fetchone():
+            raise HTTPException(status_code=400, detail="Nama eskul sudah ada")
+        cursor.execute("UPDATE eskul SET nama_eskul = %s WHERE id = %s RETURNING id, nama_eskul", (nama_eskul.strip(), eskul_id))
+        updated = cursor.fetchone()
+        if not updated:
+            raise HTTPException(status_code=404, detail="Eskul tidak ditemukan")
+        conn.commit()
+        return {"eskul": updated}
+    except psycopg2.Error as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+    finally:
+        conn.close()
+
+@app.delete("/api/eskul/{eskul_id}")
+async def delete_eskul(eskul_id: int):
+    conn = get_db_connection()
+    if not conn:
+        raise HTTPException(status_code=500, detail="Database connection failed")
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) AS count FROM siswa WHERE eskul = %s", (eskul_id,))
+        if cursor.fetchone()["count"] > 0:
+            raise HTTPException(status_code=400, detail="Eskul tidak bisa dihapus karena sudah dipilih siswa")
+        cursor.execute("DELETE FROM eskul WHERE id = %s", (eskul_id,))
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Eskul tidak ditemukan")
+        conn.commit()
+        return {"success": True}
+    except psycopg2.Error as e:
+        conn.rollback()
         raise HTTPException(status_code=500, detail=f"Database error: {e}")
     finally:
         conn.close()

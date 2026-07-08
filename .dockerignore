@@ -8,5 +8,5 @@ __pycache__
 enveskul
 config.py
 *.backup
-*.csv
+kelas1.csv
 .env

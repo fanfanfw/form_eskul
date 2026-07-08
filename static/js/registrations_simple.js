@@ -2,6 +2,7 @@
 $(document).ready(function() {
     console.log('🚀 Registrations page loaded - Simple version');
     loadAndDisplayData();
+    loadEskulManager();
 });
 
 async function loadAndDisplayData() {
@@ -336,6 +337,162 @@ window.refreshData = function() {
     setTimeout(() => {
         loadAndDisplayData();
     }, 500);
+};
+
+function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>'"]/g, char => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        "'": '&#39;',
+        '"': '&quot;'
+    }[char]));
+}
+
+function getStudentImportFile() {
+    const input = document.getElementById('studentImportFile');
+    if (!input.files.length) {
+        showErrorMessage('Pilih file Excel .xlsx dulu');
+        return null;
+    }
+    return input.files[0];
+}
+
+window.previewStudentImport = async function() {
+    const file = getStudentImportFile();
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+        const response = await fetch('/api/students/preview-import', {
+            method: 'POST',
+            body: formData
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || 'Preview gagal');
+
+        document.getElementById('importStudentsBtn').disabled = data.new_count === 0;
+        document.getElementById('importPreview').innerHTML = `
+            <div class="alert alert-info mb-2">
+                Total valid: ${data.total}<br>
+                Baru: ${data.new_count}<br>
+                Duplikat database: ${data.duplicate_database_count}<br>
+                Duplikat file: ${data.duplicate_file_count}
+            </div>
+            <div class="small text-muted">Preview 20 baris pertama</div>
+            <div class="table-responsive" style="max-height: 220px; overflow:auto;">
+                <table class="table table-sm table-bordered">
+                    <thead><tr><th>NIS</th><th>NISN</th><th>Nama</th><th>JK</th><th>Kelas</th></tr></thead>
+                    <tbody>${data.preview.map(row => `<tr><td>${escapeHtml(row.nis)}</td><td>${escapeHtml(row.nisn)}</td><td>${escapeHtml(row.nama)}</td><td>${escapeHtml(row.jeniskelamin)}</td><td>${escapeHtml(row.kelas)}</td></tr>`).join('')}</tbody>
+                </table>
+            </div>
+        `;
+    } catch (error) {
+        showErrorMessage(error.message);
+    }
+};
+
+window.importStudents = async function() {
+    const file = getStudentImportFile();
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+        const response = await fetch('/api/students/import', {
+            method: 'POST',
+            body: formData
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || 'Import gagal');
+
+        showSuccessMessage(`Import selesai. Masuk: ${data.inserted}, dilewati: ${data.skipped}`);
+        document.getElementById('importStudentsBtn').disabled = true;
+        refreshData();
+    } catch (error) {
+        showErrorMessage(error.message);
+    }
+};
+
+async function loadEskulManager() {
+    try {
+        const response = await fetch('/api/eskul/manage');
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || 'Gagal memuat eskul');
+
+        document.getElementById('eskulManager').innerHTML = `
+            <table class="table table-sm table-bordered align-middle">
+                <thead><tr><th>Nama Eskul</th><th>Siswa</th><th>Aksi</th></tr></thead>
+                <tbody>${data.eskul.map(item => `
+                    <tr>
+                        <td><input class="form-control form-control-sm" id="eskul-${item.id}" value="${escapeHtml(item.nama_eskul)}"></td>
+                        <td>${item.siswa_count}</td>
+                        <td class="text-nowrap">
+                            <button class="btn btn-sm btn-primary me-1" onclick="updateEskul(${item.id})">Simpan</button>
+                            <button class="btn btn-sm btn-danger" onclick="deleteEskul(${item.id})" ${item.siswa_count > 0 ? 'disabled' : ''}>Hapus</button>
+                        </td>
+                    </tr>
+                `).join('')}</tbody>
+            </table>
+        `;
+    } catch (error) {
+        document.getElementById('eskulManager').innerHTML = `<div class="alert alert-danger">${error.message}</div>`;
+    }
+}
+
+window.createEskul = async function() {
+    const input = document.getElementById('newEskulName');
+    const nama = input.value.trim();
+    if (!nama) return showErrorMessage('Nama eskul wajib diisi');
+
+    const formData = new FormData();
+    formData.append('nama_eskul', nama);
+
+    try {
+        const response = await fetch('/api/eskul/create', { method: 'POST', body: formData });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || 'Gagal tambah eskul');
+        input.value = '';
+        showSuccessMessage('Eskul berhasil ditambahkan');
+        loadEskulManager();
+    } catch (error) {
+        showErrorMessage(error.message);
+    }
+};
+
+window.updateEskul = async function(id) {
+    const nama = document.getElementById(`eskul-${id}`).value.trim();
+    if (!nama) return showErrorMessage('Nama eskul wajib diisi');
+
+    const formData = new FormData();
+    formData.append('nama_eskul', nama);
+
+    try {
+        const response = await fetch(`/api/eskul/${id}/update`, { method: 'POST', body: formData });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || 'Gagal update eskul');
+        showSuccessMessage('Eskul berhasil disimpan');
+        loadEskulManager();
+    } catch (error) {
+        showErrorMessage(error.message);
+    }
+};
+
+window.deleteEskul = async function(id) {
+    if (!confirm('Hapus eskul ini?')) return;
+
+    try {
+        const response = await fetch(`/api/eskul/${id}`, { method: 'DELETE' });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || 'Gagal hapus eskul');
+        showSuccessMessage('Eskul berhasil dihapus');
+        loadEskulManager();
+    } catch (error) {
+        showErrorMessage(error.message);
+    }
 };
 
 // Helper functions for messages
