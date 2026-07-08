@@ -72,6 +72,32 @@
                                 </div>
                             </div>
 
+                            <div class="card border-secondary mb-4">
+                                <div class="card-body">
+                                    <h5 class="card-title"><i class="fas fa-users-cog me-2 text-secondary"></i>Kelola Siswa</h5>
+                                    <div class="row g-2 mb-3">
+                                        <div class="col-md-2">
+                                            <select class="form-select" id="studentClassFilter" onchange="loadStudentManager()">
+                                                <option value="">Semua kelas</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-2"><input class="form-control" id="studentNis" placeholder="NIS"></div>
+                                        <div class="col-md-2"><input class="form-control" id="studentNisn" placeholder="NISN"></div>
+                                        <div class="col-md-3"><input class="form-control" id="studentNama" placeholder="Nama"></div>
+                                        <div class="col-md-1">
+                                            <select class="form-select" id="studentJk">
+                                                <option value="L">L</option>
+                                                <option value="P">P</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-2"><input class="form-control" id="studentKelas" placeholder="Kelas"></div>
+                                    </div>
+                                    <button class="btn btn-secondary me-2" onclick="createStudent()">Tambah Siswa</button>
+                                    <button class="btn btn-danger" onclick="bulkDeleteStudents()">Hapus Terpilih</button>
+                                    <div id="studentManager" class="table-responsive mt-3"></div>
+                                </div>
+                            </div>
+
                             <!-- Loading -->
                             <div id="loadingSpinner" class="text-center">
                                 <div class="spinner-border text-primary" role="status">

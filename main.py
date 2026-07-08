@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, Form, HTTPException, UploadFile, File
+from fastapi import FastAPI, Request, Form, HTTPException, UploadFile, File, Body
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
@@ -297,6 +297,134 @@ async def delete_eskul(eskul_id: int):
     finally:
         conn.close()
 
+@app.get("/api/students/manage")
+async def manage_students(kelas: str = ""):
+    conn = get_db_connection()
+    if not conn:
+        raise HTTPException(status_code=500, detail="Database connection failed")
+
+    try:
+        cursor = conn.cursor()
+        if kelas:
+            cursor.execute("""
+                SELECT id, nis, nisn, nama, jeniskelamin, kelas, eskul
+                FROM siswa
+                WHERE kelas = %s
+                ORDER BY kelas, nama
+            """, (kelas,))
+        else:
+            cursor.execute("""
+                SELECT id, nis, nisn, nama, jeniskelamin, kelas, eskul
+                FROM siswa
+                ORDER BY kelas, nama
+            """)
+        return {"students": cursor.fetchall()}
+    except psycopg2.Error as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+    finally:
+        conn.close()
+
+@app.post("/api/students/create")
+async def create_student(
+    nis: str = Form(...),
+    nisn: str = Form(...),
+    nama: str = Form(...),
+    jeniskelamin: str = Form(...),
+    kelas: str = Form(...),
+):
+    conn = get_db_connection()
+    if not conn:
+        raise HTTPException(status_code=500, detail="Database connection failed")
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1 FROM siswa WHERE nis = %s", (nis.strip(),))
+        if cursor.fetchone():
+            raise HTTPException(status_code=400, detail="NIS sudah ada")
+        cursor.execute("""
+            INSERT INTO siswa (nis, nisn, nama, jeniskelamin, kelas)
+            VALUES (%s, %s, %s, %s, %s)
+            RETURNING id
+        """, (nis.strip(), nisn.strip(), nama.strip(), jeniskelamin.strip().upper(), kelas.strip()))
+        created = cursor.fetchone()
+        conn.commit()
+        return {"id": created["id"]}
+    except psycopg2.Error as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+    finally:
+        conn.close()
+
+@app.post("/api/students/{student_id}/update")
+async def update_student(
+    student_id: int,
+    nis: str = Form(...),
+    nisn: str = Form(...),
+    nama: str = Form(...),
+    jeniskelamin: str = Form(...),
+    kelas: str = Form(...),
+):
+    conn = get_db_connection()
+    if not conn:
+        raise HTTPException(status_code=500, detail="Database connection failed")
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1 FROM siswa WHERE nis = %s AND id <> %s", (nis.strip(), student_id))
+        if cursor.fetchone():
+            raise HTTPException(status_code=400, detail="NIS sudah ada")
+        cursor.execute("""
+            UPDATE siswa
+            SET nis = %s, nisn = %s, nama = %s, jeniskelamin = %s, kelas = %s
+            WHERE id = %s
+        """, (nis.strip(), nisn.strip(), nama.strip(), jeniskelamin.strip().upper(), kelas.strip(), student_id))
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Siswa tidak ditemukan")
+        conn.commit()
+        return {"success": True}
+    except psycopg2.Error as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+    finally:
+        conn.close()
+
+@app.delete("/api/students/{student_id}")
+async def delete_student(student_id: int):
+    conn = get_db_connection()
+    if not conn:
+        raise HTTPException(status_code=500, detail="Database connection failed")
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM siswa WHERE id = %s", (student_id,))
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Siswa tidak ditemukan")
+        conn.commit()
+        return {"success": True}
+    except psycopg2.Error as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+    finally:
+        conn.close()
+
+@app.post("/api/students/bulk-delete")
+async def bulk_delete_students(ids: List[int] = Body(...)):
+    conn = get_db_connection()
+    if not conn:
+        raise HTTPException(status_code=500, detail="Database connection failed")
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM siswa WHERE id = ANY(%s)", (ids,))
+        deleted = cursor.rowcount
+        conn.commit()
+        return {"deleted": deleted}
+    except psycopg2.Error as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+    finally:
+        conn.close()
+
 @app.post("/api/submit")
 async def submit_form(
     siswa_id: int = Form(...),
@@ -375,6 +503,7 @@ async def get_registrations():
         cursor = conn.cursor()
         cursor.execute("""
             SELECT 
+                s.id,
                 COALESCE(s.nis, '') as nis, 
                 COALESCE(s.nisn, '') as nisn, 
                 COALESCE(s.nama, 'Nama tidak tersedia') as nama, 

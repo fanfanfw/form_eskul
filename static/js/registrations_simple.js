@@ -3,6 +3,8 @@ $(document).ready(function() {
     console.log('🚀 Registrations page loaded - Simple version');
     loadAndDisplayData();
     loadEskulManager();
+    loadClassFilter();
+    loadStudentManager();
 });
 
 async function loadAndDisplayData() {
@@ -490,6 +492,147 @@ window.deleteEskul = async function(id) {
         if (!response.ok) throw new Error(data.detail || 'Gagal hapus eskul');
         showSuccessMessage('Eskul berhasil dihapus');
         loadEskulManager();
+    } catch (error) {
+        showErrorMessage(error.message);
+    }
+};
+
+async function loadClassFilter() {
+    try {
+        const response = await fetch('/api/kelas');
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || 'Gagal memuat kelas');
+        document.getElementById('studentClassFilter').innerHTML = '<option value="">Semua kelas</option>' + data.kelas.map(kelas => `<option value="${escapeHtml(kelas)}">${escapeHtml(kelas)}</option>`).join('');
+    } catch (error) {
+        showErrorMessage(error.message);
+    }
+}
+
+window.loadStudentManager = async function() {
+    const kelas = document.getElementById('studentClassFilter').value;
+    const url = kelas ? `/api/students/manage?kelas=${encodeURIComponent(kelas)}` : '/api/students/manage';
+
+    try {
+        const response = await fetch(url);
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || 'Gagal memuat siswa');
+        document.getElementById('studentManager').innerHTML = `
+            <table class="table table-sm table-bordered align-middle">
+                <thead>
+                    <tr>
+                        <th><input type="checkbox" onchange="toggleStudentChecks(this.checked)"></th>
+                        <th>NIS</th><th>NISN</th><th>Nama</th><th>JK</th><th>Kelas</th><th>Aksi</th>
+                    </tr>
+                </thead>
+                <tbody>${data.students.map(student => `
+                    <tr>
+                        <td><input type="checkbox" class="student-check" value="${student.id}"></td>
+                        <td><input class="form-control form-control-sm" id="student-nis-${student.id}" value="${escapeHtml(student.nis)}"></td>
+                        <td><input class="form-control form-control-sm" id="student-nisn-${student.id}" value="${escapeHtml(student.nisn)}"></td>
+                        <td><input class="form-control form-control-sm" id="student-nama-${student.id}" value="${escapeHtml(student.nama)}"></td>
+                        <td>
+                            <select class="form-select form-select-sm" id="student-jk-${student.id}">
+                                <option value="L" ${student.jeniskelamin === 'L' ? 'selected' : ''}>L</option>
+                                <option value="P" ${student.jeniskelamin === 'P' ? 'selected' : ''}>P</option>
+                            </select>
+                        </td>
+                        <td><input class="form-control form-control-sm" id="student-kelas-${student.id}" value="${escapeHtml(student.kelas)}"></td>
+                        <td class="text-nowrap">
+                            <button class="btn btn-sm btn-primary me-1" onclick="updateStudent(${student.id})">Simpan</button>
+                            <button class="btn btn-sm btn-danger" onclick="deleteStudent(${student.id})">Hapus</button>
+                        </td>
+                    </tr>
+                `).join('')}</tbody>
+            </table>
+        `;
+    } catch (error) {
+        document.getElementById('studentManager').innerHTML = `<div class="alert alert-danger">${error.message}</div>`;
+    }
+};
+
+window.toggleStudentChecks = function(checked) {
+    document.querySelectorAll('.student-check').forEach(input => input.checked = checked);
+};
+
+function studentFormData(prefix = 'student') {
+    const formData = new FormData();
+    formData.append('nis', document.getElementById(`${prefix}Nis`).value.trim());
+    formData.append('nisn', document.getElementById(`${prefix}Nisn`).value.trim());
+    formData.append('nama', document.getElementById(`${prefix}Nama`).value.trim());
+    formData.append('jeniskelamin', document.getElementById(`${prefix}Jk`).value);
+    formData.append('kelas', document.getElementById(`${prefix}Kelas`).value.trim());
+    return formData;
+}
+
+window.createStudent = async function() {
+    try {
+        const response = await fetch('/api/students/create', { method: 'POST', body: studentFormData() });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || 'Gagal tambah siswa');
+        ['studentNis', 'studentNisn', 'studentNama', 'studentKelas'].forEach(id => document.getElementById(id).value = '');
+        showSuccessMessage('Siswa berhasil ditambahkan');
+        refreshData();
+        loadClassFilter();
+        loadStudentManager();
+    } catch (error) {
+        showErrorMessage(error.message);
+    }
+};
+
+window.updateStudent = async function(id) {
+    const formData = new FormData();
+    formData.append('nis', document.getElementById(`student-nis-${id}`).value.trim());
+    formData.append('nisn', document.getElementById(`student-nisn-${id}`).value.trim());
+    formData.append('nama', document.getElementById(`student-nama-${id}`).value.trim());
+    formData.append('jeniskelamin', document.getElementById(`student-jk-${id}`).value);
+    formData.append('kelas', document.getElementById(`student-kelas-${id}`).value.trim());
+
+    try {
+        const response = await fetch(`/api/students/${id}/update`, { method: 'POST', body: formData });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || 'Gagal update siswa');
+        showSuccessMessage('Siswa berhasil disimpan');
+        refreshData();
+        loadClassFilter();
+        loadStudentManager();
+    } catch (error) {
+        showErrorMessage(error.message);
+    }
+};
+
+window.deleteStudent = async function(id) {
+    if (!confirm('Hapus siswa ini?')) return;
+
+    try {
+        const response = await fetch(`/api/students/${id}`, { method: 'DELETE' });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || 'Gagal hapus siswa');
+        showSuccessMessage('Siswa berhasil dihapus');
+        refreshData();
+        loadClassFilter();
+        loadStudentManager();
+    } catch (error) {
+        showErrorMessage(error.message);
+    }
+};
+
+window.bulkDeleteStudents = async function() {
+    const ids = Array.from(document.querySelectorAll('.student-check:checked')).map(input => Number(input.value));
+    if (!ids.length) return showErrorMessage('Pilih siswa dulu');
+    if (!confirm(`Hapus ${ids.length} siswa terpilih?`)) return;
+
+    try {
+        const response = await fetch('/api/students/bulk-delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(ids)
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || 'Gagal bulk delete siswa');
+        showSuccessMessage(`${data.deleted} siswa berhasil dihapus`);
+        refreshData();
+        loadClassFilter();
+        loadStudentManager();
     } catch (error) {
         showErrorMessage(error.message);
     }
