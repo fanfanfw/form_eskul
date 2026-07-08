@@ -11,14 +11,20 @@ import json
 try:
     from config import *
 except ImportError:
-    # Fallback configuration jika config.py tidak ada
     DB_HOST = "localhost"
     DB_DATABASE = "db_form_eskul"
-    DB_USER = "fanfan"
-    DB_PASSWORD = "cenanun"
+    DB_USER = "postgres"
+    DB_PASSWORD = "postgres"
     DB_PORT = 5432
     APP_TITLE = "Form Eskul Siswa"
     APP_DESCRIPTION = "Website untuk mengisi form eskul siswa"
+
+DB_HOST = os.getenv("DB_HOST", DB_HOST)
+DB_DATABASE = os.getenv("DB_DATABASE", DB_DATABASE)
+DB_USER = os.getenv("DB_USER", DB_USER)
+DB_PASSWORD = os.getenv("DB_PASSWORD", DB_PASSWORD)
+DB_PORT = int(os.getenv("DB_PORT", DB_PORT))
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 app = FastAPI(title=APP_TITLE, description=APP_DESCRIPTION)
 
@@ -38,7 +44,10 @@ DB_CONFIG = {
 def get_db_connection():
     """Membuat koneksi ke database PostgreSQL"""
     try:
-        conn = psycopg2.connect(**DB_CONFIG, cursor_factory=RealDictCursor)
+        if DATABASE_URL:
+            conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+        else:
+            conn = psycopg2.connect(**DB_CONFIG, cursor_factory=RealDictCursor)
         return conn
     except psycopg2.Error as e:
         print(f"Error connecting to database: {e}")
