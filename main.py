@@ -9,6 +9,7 @@ import os
 import io
 import csv
 import hmac
+import re
 from typing import List
 import pandas as pd
 
@@ -68,6 +69,41 @@ def db_or_500():
     if not conn:
         raise HTTPException(status_code=500, detail="Database connection failed")
     return conn
+
+@app.on_event("startup")
+def migrate_database():
+    conn = db_or_500()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT pg_advisory_xact_lock(hashtext('form_eskul_schema_migration'))")
+        cursor.execute("SELECT 1 FROM pg_attribute WHERE attrelid='eskul'::regclass AND attname='minimal_kelas' AND NOT attisdropped")
+        new_column = not cursor.fetchone()
+        cursor.execute("ALTER TABLE eskul ADD COLUMN IF NOT EXISTS minimal_kelas INTEGER NOT NULL DEFAULT 1")
+        if new_column:
+            cursor.execute("UPDATE eskul SET minimal_kelas=3 WHERE LOWER(nama_eskul) IN ('pencak silat','futsal','angklung')")
+        cursor.execute("SELECT 1 FROM pg_constraint WHERE conname='eskul_minimal_kelas_check' AND conrelid='eskul'::regclass")
+        if not cursor.fetchone():
+            cursor.execute("ALTER TABLE eskul ADD CONSTRAINT eskul_minimal_kelas_check CHECK (minimal_kelas BETWEEN 1 AND 6)")
+        conn.commit()
+    finally:
+        conn.close()
+
+def grade_from_kelas(kelas):
+    match = re.search(r"\d+", kelas or "")
+    if not match or not 1 <= int(match.group()) <= 6:
+        raise HTTPException(400, "Kelas tidak valid")
+    return int(match.group())
+
+def validate_assignment(cursor, kelas, eskul_id):
+    if eskul_id is None:
+        return
+    grade = grade_from_kelas(kelas)
+    cursor.execute("SELECT minimal_kelas FROM eskul WHERE id=%s FOR SHARE", (eskul_id,))
+    eskul = cursor.fetchone()
+    if not eskul:
+        raise HTTPException(400, "Eskul tidak valid")
+    if grade < eskul["minimal_kelas"]:
+        raise HTTPException(400, f"Eskul hanya untuk kelas {eskul['minimal_kelas']}+")
 
 def clean_student(nis, nisn, nama, jeniskelamin, kelas):
     values = [str(value).strip() for value in (nis, nisn, nama, jeniskelamin, kelas)]
@@ -137,7 +173,7 @@ async def get_siswa_by_kelas(kelas: str):
 async def get_eskul():
     conn = db_or_500()
     try:
-        cursor = conn.cursor(); cursor.execute("SELECT id, nama_eskul FROM eskul ORDER BY nama_eskul")
+        cursor = conn.cursor(); cursor.execute("SELECT id, nama_eskul, minimal_kelas FROM eskul ORDER BY nama_eskul")
         return {"eskul": cursor.fetchall()}
     finally: conn.close()
 
@@ -176,15 +212,15 @@ async def import_students(file: UploadFile = File(...)):
             cursor.execute("INSERT INTO siswa (nis,nisn,nama,jeniskelamin,kelas) SELECT %s,%s,%s,%s,%s WHERE NOT EXISTS (SELECT 1 FROM siswa WHERE nis=%s)", (*row.values(), row["nis"]))
             inserted += cursor.rowcount
         conn.commit(); return {"inserted": inserted, "skipped": len(rows) - inserted + len(duplicate_file)}
-    except psycopg2.Error as error:
-        conn.rollback(); raise HTTPException(500, f"Database error: {error}")
+    except psycopg2.Error:
+        conn.rollback(); raise HTTPException(500, "Database error")
     finally: conn.close()
 
 @app.get("/api/eskul/manage")
 async def manage_eskul_list():
     conn = db_or_500()
     try:
-        cursor = conn.cursor(); cursor.execute("SELECT e.id,e.nama_eskul,COUNT(s.id) AS siswa_count FROM eskul e LEFT JOIN siswa s ON s.eskul=e.id GROUP BY e.id,e.nama_eskul ORDER BY e.nama_eskul")
+        cursor = conn.cursor(); cursor.execute("SELECT e.id,e.nama_eskul,e.minimal_kelas,COUNT(s.id) AS siswa_count FROM eskul e LEFT JOIN siswa s ON s.eskul=e.id GROUP BY e.id,e.nama_eskul,e.minimal_kelas ORDER BY e.nama_eskul")
         return {"eskul": cursor.fetchall()}
     finally: conn.close()
 
@@ -199,23 +235,32 @@ def optional_eskul_id(value):
     return int(value)
 
 @app.post("/api/eskul/create")
-async def create_eskul(nama_eskul: str = Form(...)):
+async def create_eskul(nama_eskul: str = Form(...), minimal_kelas: int = Form(..., ge=1, le=6)):
     name = valid_eskul_name(nama_eskul); conn = db_or_500()
     try:
-        cursor = conn.cursor(); cursor.execute("INSERT INTO eskul (nama_eskul) SELECT %s WHERE NOT EXISTS (SELECT 1 FROM eskul WHERE LOWER(nama_eskul)=LOWER(%s)) RETURNING id,nama_eskul", (name,name)); result=cursor.fetchone()
+        cursor = conn.cursor(); cursor.execute("INSERT INTO eskul (nama_eskul,minimal_kelas) SELECT %s,%s WHERE NOT EXISTS (SELECT 1 FROM eskul WHERE LOWER(nama_eskul)=LOWER(%s)) RETURNING id,nama_eskul,minimal_kelas", (name,minimal_kelas,name)); result=cursor.fetchone()
         if not result: raise HTTPException(400,"Nama eskul sudah ada")
         conn.commit(); return {"eskul":result}
     finally: conn.close()
 
 @app.post("/api/eskul/{eskul_id}/update")
-async def update_eskul(eskul_id:int,nama_eskul:str=Form(...)):
+async def update_eskul(eskul_id:int,nama_eskul:str=Form(...),minimal_kelas:int=Form(...,ge=1,le=6)):
     name=valid_eskul_name(nama_eskul); conn=db_or_500()
     try:
         cursor=conn.cursor(); cursor.execute("SELECT 1 FROM eskul WHERE LOWER(nama_eskul)=LOWER(%s) AND id<>%s",(name,eskul_id))
         if cursor.fetchone(): raise HTTPException(400,"Nama eskul sudah ada")
-        cursor.execute("UPDATE eskul SET nama_eskul=%s WHERE id=%s RETURNING id,nama_eskul",(name,eskul_id)); result=cursor.fetchone()
+        cursor.execute("UPDATE eskul SET nama_eskul=%s,minimal_kelas=%s WHERE id=%s RETURNING id,nama_eskul,minimal_kelas",(name,minimal_kelas,eskul_id)); result=cursor.fetchone()
         if not result: raise HTTPException(404,"Eskul tidak ditemukan")
-        conn.commit(); return {"eskul":result}
+        cursor.execute("SELECT id,kelas FROM siswa WHERE eskul=%s FOR UPDATE",(eskul_id,)); assigned=cursor.fetchall(); invalid=[]
+        for student in assigned:
+            try:
+                if grade_from_kelas(student["kelas"]) < minimal_kelas: invalid.append(student["id"])
+            except HTTPException:
+                invalid.append(student["id"])
+        if invalid: cursor.execute("UPDATE siswa SET eskul=NULL WHERE id=ANY(%s)",(invalid,))
+        affected=len(invalid); conn.commit(); return {"eskul":result,"affected_students":affected}
+    except psycopg2.Error:
+        conn.rollback(); raise HTTPException(500,"Database error")
     finally: conn.close()
 
 @app.delete("/api/eskul/{eskul_id}")
@@ -227,8 +272,8 @@ async def delete_eskul(eskul_id:int):
         cursor.execute("UPDATE siswa SET eskul=NULL WHERE eskul=%s",(eskul_id,)); affected=cursor.rowcount
         cursor.execute("DELETE FROM eskul WHERE id=%s",(eskul_id,)); conn.commit()
         return {"success":True,"name":item["nama_eskul"],"affected_students":affected}
-    except psycopg2.Error as error:
-        conn.rollback(); raise HTTPException(500,f"Database error: {error}")
+    except psycopg2.Error:
+        conn.rollback(); raise HTTPException(500,"Database error")
     finally: conn.close()
 
 @app.get("/api/students/manage")
@@ -241,7 +286,7 @@ async def manage_students(page:int=1,page_size:int=25,search:str="",kelas:str=""
         cursor.execute("SELECT COUNT(*) total FROM siswa s"+where,params); total=cursor.fetchone()["total"]; pages=max(1,(total+page_size-1)//page_size)
         cursor.execute("SELECT s.id,COALESCE(s.nis,'') nis,COALESCE(s.nisn,'') nisn,COALESCE(s.nama,'') nama,COALESCE(s.jeniskelamin,'') jeniskelamin,COALESCE(s.kelas,'') kelas,s.eskul,e.nama_eskul FROM siswa s LEFT JOIN eskul e ON e.id=s.eskul"+where+" ORDER BY s.kelas,s.nama LIMIT %s OFFSET %s",params+[page_size,(page-1)*page_size]); items=cursor.fetchall()
         cursor.execute("SELECT DISTINCT kelas FROM siswa ORDER BY kelas"); classes=[row["kelas"] for row in cursor.fetchall()]
-        cursor.execute("SELECT id,nama_eskul FROM eskul ORDER BY nama_eskul"); eskul=cursor.fetchall()
+        cursor.execute("SELECT id,nama_eskul,minimal_kelas FROM eskul ORDER BY nama_eskul"); eskul=cursor.fetchall()
         return {"items":items,"students":items,"total":total,"page":page,"pages":pages,"summary":summary,"options":{"kelas":classes,"eskul":eskul}}
     finally: conn.close()
 
@@ -258,7 +303,7 @@ async def export_registrations(search:str="",kelas:str="",eskul_id:int|None=None
 async def create_student(nis:str=Form(...),nisn:str=Form(...),nama:str=Form(...),jeniskelamin:str=Form(...),kelas:str=Form(...),eskul_id:str=Form("")):
     values=clean_student(nis,nisn,nama,jeniskelamin,kelas); selected_eskul=optional_eskul_id(eskul_id); conn=db_or_500()
     try:
-        cursor=conn.cursor(); cursor.execute("INSERT INTO siswa (nis,nisn,nama,jeniskelamin,kelas,eskul) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id",(*values,selected_eskul)); result=cursor.fetchone(); conn.commit(); return result
+        cursor=conn.cursor(); validate_assignment(cursor,values[4],selected_eskul); cursor.execute("INSERT INTO siswa (nis,nisn,nama,jeniskelamin,kelas,eskul) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id",(*values,selected_eskul)); result=cursor.fetchone(); conn.commit(); return result
     except psycopg2.IntegrityError:
         conn.rollback(); raise HTTPException(400,"NIS sudah ada atau eskul tidak valid")
     finally: conn.close()
@@ -267,7 +312,7 @@ async def create_student(nis:str=Form(...),nisn:str=Form(...),nama:str=Form(...)
 async def update_student(student_id:int,nis:str=Form(...),nisn:str=Form(...),nama:str=Form(...),jeniskelamin:str=Form(...),kelas:str=Form(...),eskul_id:str=Form("")):
     values=clean_student(nis,nisn,nama,jeniskelamin,kelas); selected_eskul=optional_eskul_id(eskul_id); conn=db_or_500()
     try:
-        cursor=conn.cursor(); cursor.execute("UPDATE siswa SET nis=%s,nisn=%s,nama=%s,jeniskelamin=%s,kelas=%s,eskul=%s WHERE id=%s",(*values,selected_eskul,student_id))
+        cursor=conn.cursor(); validate_assignment(cursor,values[4],selected_eskul); cursor.execute("UPDATE siswa SET nis=%s,nisn=%s,nama=%s,jeniskelamin=%s,kelas=%s,eskul=%s WHERE id=%s",(*values,selected_eskul,student_id))
         if not cursor.rowcount: raise HTTPException(404,"Siswa tidak ditemukan")
         conn.commit(); return {"success":True}
     except psycopg2.IntegrityError:
@@ -295,14 +340,16 @@ async def bulk_delete_students(ids:List[int]=Body(...)):
 async def submit_form(siswa_id:int=Form(...),eskul_id:int=Form(...)):
     conn=db_or_500()
     try:
-        cursor=conn.cursor(); cursor.execute("SELECT s.kelas,s.nama,e.nama_eskul FROM siswa s CROSS JOIN eskul e WHERE s.id=%s AND e.id=%s",(siswa_id,eskul_id)); result=cursor.fetchone()
-        if not result: raise HTTPException(404,"Siswa atau eskul tidak ditemukan")
-        if ("kelas 1" in (result["kelas"] or "").lower() or "kelas 2" in (result["kelas"] or "").lower()) and result["nama_eskul"] in ["Pencak Silat","Futsal","Angklung"]: raise HTTPException(400,f"Siswa kelas 1 dan kelas 2 tidak dapat memilih {result['nama_eskul']}.")
+        cursor=conn.cursor(); cursor.execute("SELECT nama_eskul,minimal_kelas FROM eskul WHERE id=%s FOR SHARE",(eskul_id,)); eskul=cursor.fetchone()
+        if not eskul: raise HTTPException(404,"Siswa atau eskul tidak ditemukan")
+        cursor.execute("SELECT kelas,nama FROM siswa WHERE id=%s FOR UPDATE",(siswa_id,)); student=cursor.fetchone()
+        if not student: raise HTTPException(404,"Siswa atau eskul tidak ditemukan")
+        if grade_from_kelas(student["kelas"]) < eskul["minimal_kelas"]: raise HTTPException(400,f"{eskul['nama_eskul']} hanya untuk kelas {eskul['minimal_kelas']}+")
         cursor.execute("UPDATE siswa SET eskul=%s WHERE id=%s AND eskul IS NULL",(eskul_id,siswa_id))
         if not cursor.rowcount: raise HTTPException(409,"Siswa sudah memilih ekstrakurikuler. Pilihan tidak diubah.")
-        conn.commit(); return {"success":True,"message":f"Berhasil mendaftarkan {result['nama']} ke eskul {result['nama_eskul']}","data":{"nama":result["nama"],"nama_eskul":result["nama_eskul"],"kelas":result["kelas"]}}
-    except psycopg2.Error as error:
-        conn.rollback(); raise HTTPException(500,f"Database error: {error}")
+        conn.commit(); return {"success":True,"message":f"Berhasil mendaftarkan {student['nama']} ke eskul {eskul['nama_eskul']}","data":{"nama":student["nama"],"nama_eskul":eskul["nama_eskul"],"kelas":student["kelas"]}}
+    except psycopg2.Error:
+        conn.rollback(); raise HTTPException(500,"Database error")
     finally: conn.close()
 
 @app.get("/registrations",response_class=HTMLResponse)

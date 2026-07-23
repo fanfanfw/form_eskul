@@ -61,9 +61,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // Data eskul yang hanya untuk kelas 3 ke atas
-    const restrictedEskul = ['Pencak Silat', 'Futsal', 'Angklung'];
-    
     // Fungsi untuk load daftar eskul
     async function loadEskul() {
         try {
@@ -86,18 +83,17 @@ document.addEventListener('DOMContentLoaded', function() {
     function populateEskulOptions(eskulList, selectedKelas) {
         eskulSelect.innerHTML = '<option value="">-- Pilih Ekstrakurikuler --</option>';
         
-        // Cek apakah kelas 1 atau kelas 2
-        const isKelas1or2 = selectedKelas && (selectedKelas.toLowerCase().includes('kelas 1') || selectedKelas.toLowerCase().includes('kelas 2'));
+        const match = selectedKelas.match(/\d+/);
+        const grade = match && Number(match[0]) >= 1 && Number(match[0]) <= 6 ? Number(match[0]) : null;
         
         eskulList.forEach(eskul => {
             const option = document.createElement('option');
             option.value = eskul.id;
             option.textContent = eskul.nama_eskul;
             
-            // Jika kelas 1 atau 2 dan eskul adalah yang dibatasi, disable option
-            if (isKelas1or2 && restrictedEskul.includes(eskul.nama_eskul)) {
+            if (eskul.minimal_kelas > 1) option.textContent += ` (Kelas ${eskul.minimal_kelas}+)`;
+            if (!grade || grade < eskul.minimal_kelas) {
                 option.disabled = true;
-                option.textContent += ' (Hanya untuk kelas 3 ke atas)';
                 option.style.color = '#999';
             }
             
@@ -127,12 +123,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // Update eskul options berdasarkan kelas yang dipilih
         if (window.allEskul) {
             populateEskulOptions(window.allEskul, selectedKelas);
-            
-            // Tampilkan peringatan jika kelas 1 atau 2
-            const isKelas1or2Warning = selectedKelas.toLowerCase().includes('kelas 1') || selectedKelas.toLowerCase().includes('kelas 2');
-            if (isKelas1or2Warning) {
-                showAlert('Perhatian: Kelas 1 dan kelas 2 tidak dapat memilih eskul Pencak Silat, Futsal, dan Angklung (hanya untuk kelas 3 ke atas)', 'warning');
-            }
+
         }
 
         try {
@@ -193,16 +184,6 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!siswaId || !eskulId) {
             showAlert('Mohon lengkapi semua field', 'danger');
             return;
-        }
-
-        // Validasi eskul berdasarkan kelas
-        const isKelas1or2Submit = selectedKelas && (selectedKelas.toLowerCase().includes('kelas 1') || selectedKelas.toLowerCase().includes('kelas 2'));
-        if (isKelas1or2Submit && window.allEskul) {
-            const selectedEskul = window.allEskul.find(eskul => eskul.id == eskulId);
-            if (selectedEskul && restrictedEskul.includes(selectedEskul.nama_eskul)) {
-                showAlert('Siswa kelas 1 dan kelas 2 tidak dapat memilih ' + selectedEskul.nama_eskul + '. Silakan pilih ekstrakurikuler lain.', 'danger');
-                return;
-            }
         }
 
         // Show loading

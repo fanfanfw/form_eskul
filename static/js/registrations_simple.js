@@ -34,9 +34,11 @@ function params(includePage = true) {
   return query;
 }
 
-function eskulOptions(selected, blank = 'Belum memilih') {
-  return `<option value="">${blank}</option>` + options.eskul.map(eskul => `
-    <option value="${eskul.id}" ${Number(selected) === eskul.id ? 'selected' : ''}>${esc(eskul.nama_eskul)}</option>
+function eskulOptions(selected, blank = 'Belum memilih', kelas = '') {
+  const match = kelas.match(/\d+/);
+  const grade = match && Number(match[0]) >= 1 && Number(match[0]) <= 6 ? Number(match[0]) : null;
+  return `<option value="">${blank}</option>` + options.eskul.filter(eskul => Number(selected) === eskul.id || (grade && grade >= eskul.minimal_kelas)).map(eskul => `
+    <option value="${eskul.id}" ${Number(selected) === eskul.id ? 'selected' : ''}>${esc(eskul.nama_eskul)}${eskul.minimal_kelas > 1 ? ` (Kelas ${eskul.minimal_kelas}+)` : ''}</option>
   `).join('');
 }
 
@@ -56,7 +58,7 @@ async function loadStudents() {
     $('eskulFilter').innerHTML = '<option value="">Semua eskul</option>' + options.eskul.map(eskul => `
       <option value="${eskul.id}" ${String(eskul.id) === $('eskulFilter').dataset.value ? 'selected' : ''}>${esc(eskul.nama_eskul)}</option>
     `).join('');
-    $('newEskul').innerHTML = eskulOptions(null);
+    $('newEskul').innerHTML = eskulOptions(null, 'Belum memilih', $('newKelas').value);
     $('studentRows').innerHTML = data.items.map(student => `
       <tr>
         <td><input class="student-check" type="checkbox" value="${student.id}" aria-label="Pilih ${esc(student.nama)}"></td>
@@ -65,7 +67,7 @@ async function loadStudents() {
         <td><input class="form-control form-control-sm" id="nama-${student.id}" value="${esc(student.nama)}" aria-label="Nama"></td>
         <td><select class="form-select form-select-sm" id="jk-${student.id}" aria-label="Jenis kelamin"><option ${student.jeniskelamin === 'L' ? 'selected' : ''}>L</option><option ${student.jeniskelamin === 'P' ? 'selected' : ''}>P</option></select></td>
         <td><input class="form-control form-control-sm" id="kelas-${student.id}" value="${esc(student.kelas)}" aria-label="Kelas"></td>
-        <td><select class="form-select form-select-sm" id="eskul-${student.id}" aria-label="Eskul">${eskulOptions(student.eskul)}</select></td>
+        <td><select class="form-select form-select-sm" id="eskul-${student.id}" aria-label="Eskul">${eskulOptions(student.eskul, 'Belum memilih', student.kelas)}</select></td>
         <td><button class="btn btn-sm btn-primary" type="button" data-action="update-student" data-id="${student.id}">Simpan</button> <button class="btn btn-sm btn-outline-danger" type="button" data-action="delete-student" data-id="${student.id}">Hapus</button></td>
       </tr>
     `).join('') || '<tr><td colspan="8">Tidak ada data.</td></tr>';
@@ -151,10 +153,11 @@ async function loadEskulManager() {
     const data = await api('/api/eskul/manage');
     $('eskulManager').innerHTML = `
       <table class="table">
-        <thead><tr><th>Nama</th><th>Siswa</th><th>Aksi</th></tr></thead>
+        <thead><tr><th>Nama</th><th>Minimum kelas</th><th>Siswa</th><th>Aksi</th></tr></thead>
         <tbody>${data.eskul.map(eskul => `
           <tr>
             <td><input class="form-control" id="manage-eskul-${eskul.id}" value="${esc(eskul.nama_eskul)}"></td>
+            <td><select class="form-select" id="manage-minimal-${eskul.id}">${[1,2,3,4,5,6].map(grade => `<option ${grade === eskul.minimal_kelas ? 'selected' : ''}>${grade}</option>`).join('')}</select></td>
             <td>${eskul.siswa_count}</td>
             <td><button class="btn btn-sm btn-primary" type="button" data-action="save-eskul" data-id="${eskul.id}">Simpan</button> <button class="btn btn-sm btn-outline-danger" type="button" data-action="delete-eskul" data-id="${eskul.id}" data-count="${eskul.siswa_count}">Hapus</button></td>
           </tr>
@@ -167,15 +170,16 @@ async function loadEskulManager() {
   }
 }
 
-async function eskulRequest(url, name) {
+async function eskulRequest(url, name, minimalKelas) {
   const form = new FormData();
   form.append('nama_eskul', name);
+  form.append('minimal_kelas', minimalKelas);
   return api(url, { method: 'POST', body: form });
 }
 
 async function createEskul() {
   try {
-    await eskulRequest('/api/eskul/create', $('newEskulName').value.trim());
+    await eskulRequest('/api/eskul/create', $('newEskulName').value.trim(), $('newEskulMinimum').value);
     $('newEskulName').value = '';
     await Swal.fire('Ditambahkan', 'Eskul baru tersedia', 'success');
     loadEskulManager();
@@ -187,8 +191,8 @@ async function createEskul() {
 
 async function saveEskul(id) {
   try {
-    await eskulRequest(`/api/eskul/${id}/update`, $(`manage-eskul-${id}`).value.trim());
-    await Swal.fire('Tersimpan', '', 'success');
+    const data = await eskulRequest(`/api/eskul/${id}/update`, $(`manage-eskul-${id}`).value.trim(), $(`manage-minimal-${id}`).value);
+    await Swal.fire('Tersimpan', `${data.affected_students} pilihan siswa dikosongkan.`, 'success');
     loadEskulManager();
     loadStudents();
   } catch (error) {
@@ -244,6 +248,13 @@ async function importStudents() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  $('newKelas').addEventListener('input', () => { $('newEskul').innerHTML = eskulOptions(null, 'Belum memilih', $('newKelas').value); });
+  $('studentRows').addEventListener('input', event => {
+    if (!event.target.id.startsWith('kelas-')) return;
+    const id = event.target.id.slice(6);
+    const select = $(`eskul-${id}`);
+    select.innerHTML = eskulOptions(select.value, 'Belum memilih', event.target.value);
+  });
   $('filters').addEventListener('submit', event => {
     event.preventDefault();
     $('kelasFilter').dataset.value = $('kelasFilter').value;
