@@ -10,8 +10,13 @@ import io
 import csv
 import hmac
 import re
+import hashlib
+import zipfile
+from collections import Counter
 from typing import List
 import pandas as pd
+from openpyxl import load_workbook
+from openpyxl.utils.exceptions import InvalidFileException
 
 try:
     from config import *
@@ -110,10 +115,13 @@ def clean_student(nis, nisn, nama, jeniskelamin, kelas):
     values[3] = values[3].upper()
     if not values[0] or not values[2] or not values[4]:
         raise HTTPException(status_code=400, detail="NIS, nama, dan kelas wajib diisi")
-    if values[3] not in ("L", "P"):
-        raise HTTPException(status_code=400, detail="Jenis kelamin harus L atau P")
-    if any(len(value) > 255 for value in values):
-        raise HTTPException(status_code=400, detail="Data siswa terlalu panjang")
+    if values[3] not in ("L", "P", "-"):
+        raise HTTPException(status_code=400, detail="Jenis kelamin harus L, P, atau -")
+    limits = (20, 20, 255, 1, 15)
+    labels = ("NIS", "NISN", "Nama", "Jenis kelamin", "Kelas")
+    for value, limit, label in zip(values, limits, labels):
+        if len(value) > limit:
+            raise HTTPException(status_code=400, detail=f"{label} maksimal {limit} karakter")
     return values
 
 def filters_sql(search="", kelas="", eskul_id=None, status=""):
@@ -177,41 +185,134 @@ async def get_eskul():
         return {"eskul": cursor.fetchall()}
     finally: conn.close()
 
+def excel_text(value):
+    if value is None: return ""
+    if isinstance(value, float) and value.is_integer(): return str(int(value))
+    return str(value).strip().lstrip("'").strip()
+
+def header_key(value):
+    return re.sub(r"[^a-z0-9]", "", excel_text(value).lower())
+
+def normalized_class(value):
+    text = excel_text(value)
+    match = re.fullmatch(r"\s*(?:kelas|class)\s*([1-6])\s*[- ]?([a-z])?\s*", text, re.I) or re.fullmatch(r"\s*([1-6])\s*[- ]?([a-z])?\s*", text, re.I)
+    return f"Kelas {match.group(1)}{match.group(2).upper() if match.group(2) else ''}" if match else ""
+
+def normalized_gender(value):
+    key = header_key(value)
+    if key in ("l", "lakilaki", "laki", "male", "pria"): return "L"
+    if key in ("p", "perempuan", "female", "wanita"): return "P"
+    return "-"
+
+async def read_limited_upload(upload, maximum=15 * 1024 * 1024):
+    content = bytearray()
+    while chunk := await upload.read(1024 * 1024):
+        content.extend(chunk)
+        if len(content) > maximum: raise HTTPException(400, "File maksimal 15MB")
+    return bytes(content)
+
 def read_students_excel(file_content: bytes):
-    df = pd.read_excel(io.BytesIO(file_content), dtype=str).fillna("")
-    required = ["NIS", "NISN", "Nama", "JenisKelamin", "Kelas"]
-    missing = [column for column in required if column not in df.columns]
-    if missing: raise HTTPException(status_code=400, detail=f"Kolom wajib tidak ada: {', '.join(missing)}")
-    rows, seen, duplicates = [], set(), []
-    for _, row in df.iterrows():
-        if not str(row["NIS"]).strip(): continue
-        values = clean_student(row["NIS"], row["NISN"], row["Nama"], row["JenisKelamin"], row["Kelas"])
-        student = dict(zip(("nis", "nisn", "nama", "jeniskelamin", "kelas"), values))
-        if student["nis"] in seen: duplicates.append(student)
-        else: seen.add(student["nis"]); rows.append(student)
-    return rows, duplicates
+    try:
+        with zipfile.ZipFile(io.BytesIO(file_content)) as archive:
+            entries = archive.infolist()
+            if len(entries) > 1000: raise HTTPException(400, "File Excel memiliki terlalu banyak entri")
+            if sum(entry.file_size for entry in entries) > 100 * 1024 * 1024: raise HTTPException(400, "Isi file Excel terlalu besar")
+            if any(entry.file_size > 50 * 1024 * 1024 or entry.file_size and (not entry.compress_size or entry.file_size / entry.compress_size > 200) for entry in entries): raise HTTPException(400, "File Excel terkompresi mencurigakan")
+    except (zipfile.BadZipFile, OSError, ValueError):
+        raise HTTPException(400, "File Excel rusak, terenkripsi, atau tidak dapat dibaca")
+    try: workbook = load_workbook(io.BytesIO(file_content), read_only=True, data_only=True)
+    except (InvalidFileException, OSError, ValueError, KeyError, EOFError, zipfile.BadZipFile): raise HTTPException(400, "File Excel rusak, terenkripsi, atau tidak dapat dibaca")
+    sheets = [sheet for sheet in workbook.worksheets if sheet.sheet_state == "visible"]
+    if len(sheets) > 100: raise HTTPException(400, "File maksimal 100 sheet")
+    aliases = {"name": {"nama", "namasiswa", "namalengkap"}, "gender": {"jk", "lp", "jeniskelamin"}, "class": {"kelas", "class"}, "nis": {"nis", "nomorinduksiswa"}, "nisn": {"nisn", "nomorinduksiswanasional"}, "combined": {"nisnnis", "nisnisn"}, "sequence": {"no", "nomor", "urut"}}
+    rows, duplicates, skipped, summaries, seen, total_cells, synthetic_counts = [], [], [], [], set(), 0, Counter()
+    for sheet in sheets:
+        if sheet.max_row is None or sheet.max_column is None: sheet.calculate_dimension(force=True)
+        max_row, max_column = sheet.max_row or 0, sheet.max_column or 0
+        if max_row > 20000 or max_column > 200: raise HTTPException(400, "Sheet maksimal 20000 baris dan 200 kolom")
+        total_cells += max_row * max_column
+        if total_cells > 1000000: raise HTTPException(400, "File maksimal 1000000 sel")
+        top = list(sheet.iter_rows(min_row=1, max_row=min(30, max_row), max_col=min(200, max_column), values_only=True))
+        sheet_class = normalized_class(sheet.title)
+        found, header_rows = {}, []
+        for number, row in enumerate(top, 1):
+            hits = {}
+            for column, cell in enumerate(row):
+                key = header_key(cell)
+                for field, names in aliases.items():
+                    if key in names: hits[field] = column
+            if "name" in hits and (set(hits) - {"name"} or sheet_class and len(hits) == 1 and sum(bool(excel_text(cell)) for cell in row) == 1):
+                found.update(hits); header_rows.append(number)
+                for nearby_number in range(max(1, number - 2), min(len(top), number + 2) + 1):
+                    for column, cell in enumerate(top[nearby_number - 1]):
+                        key = header_key(cell)
+                        for field, names in aliases.items():
+                            if key in names and field not in found: found[field] = column; header_rows.append(nearby_number)
+                break
+        if "name" not in found:
+            skipped.append({"sheet": sheet.title, "row": 0, "reason": "Header nama tidak ditemukan"}); summaries.append({"sheet": sheet.title, "class": sheet_class, "rows": 0}); continue
+        count, blank_names = 0, 0
+        start = max(header_rows) + 1
+        for number, values in enumerate(sheet.iter_rows(min_row=start, max_row=min(max_row, 20000), max_col=min(max_column, 200), values_only=True), start):
+            name = excel_text(values[found["name"]] if found["name"] < len(values) else "")
+            if not name:
+                blank_names += 1
+                if "sequence" not in found and blank_names >= 20: break
+                continue
+            blank_names = 0
+            if "sequence" in found and not excel_text(values[found["sequence"]] if found["sequence"] < len(values) else "").isdigit(): continue
+            name_key = header_key(name)
+            if name_key in aliases["name"] or name_key.startswith(("jumlah", "total", "mengetahui", "walikelas", "keterangan", "lakilaki", "perempuan")): continue
+            row_class = excel_text(values[found["class"]]) if "class" in found and found["class"] < len(values) else sheet_class
+            row_class = normalized_class(row_class)
+            if not row_class:
+                skipped.append({"sheet": sheet.title, "row": number, "reason": "Kelas tidak valid"}); continue
+            nis = excel_text(values[found["nis"]]) if "nis" in found and found["nis"] < len(values) else ""
+            nisn = excel_text(values[found["nisn"]]) if "nisn" in found and found["nisn"] < len(values) else ""
+            if "combined" in found and found["combined"] < len(values):
+                parts = [excel_text(part) for part in re.split(r"\s*/\s*", excel_text(values[found["combined"]]), maxsplit=1)]
+                if len(parts) == 2: nisn, nis = parts
+            gender = normalized_gender(values[found["gender"]] if "gender" in found and found["gender"] < len(values) else "")
+            if gender == "-":
+                skipped.append({"sheet": sheet.title, "row": number, "reason": "Jenis kelamin wajib L atau P"}); continue
+            if not nis:
+                base = f"{header_key(row_class)}|{header_key(name)}"
+                synthetic_counts[base] += 1
+                nis = "IMP-" + hashlib.sha256(f"{base}|{synthetic_counts[base]}".encode()).hexdigest()[:16]
+            try:
+                nis, nisn, name, gender, row_class = clean_student(nis, nisn, name, gender, row_class)
+            except HTTPException as error:
+                skipped.append({"sheet": sheet.title, "row": number, "reason": error.detail}); continue
+            student = {"nis": nis, "nisn": nisn, "nama": name, "jeniskelamin": gender, "kelas": row_class}
+            if nis in seen:
+                duplicates.append({**student, "sheet": sheet.title, "row": number}); continue
+            seen.add(nis); rows.append(student); count += 1
+            if len(rows) > 10000: raise HTTPException(400, "File maksimal 10000 siswa")
+        summaries.append({"sheet": sheet.title, "class": sheet_class, "rows": count})
+    if not rows: raise HTTPException(400, "Tidak ada baris siswa yang dapat digunakan")
+    return {"rows": rows, "duplicates": duplicates, "skipped": skipped, "sheets": summaries}
 
 @app.post("/api/students/preview-import")
 async def preview_students_import(file: UploadFile = File(...)):
     if not file.filename or not file.filename.lower().endswith(".xlsx"): raise HTTPException(400, "Upload file Excel .xlsx")
-    rows, duplicate_file = read_students_excel(await file.read()); conn = db_or_500()
+    parsed = read_students_excel(await read_limited_upload(file)); rows = parsed["rows"]; conn = db_or_500()
     try:
         cursor = conn.cursor(); existing = set(); nis_list = [row["nis"] for row in rows]
         if nis_list:
             cursor.execute("SELECT nis FROM siswa WHERE nis = ANY(%s)", (nis_list,)); existing = {row["nis"] for row in cursor.fetchall()}
-        return {"total": len(rows), "new_count": sum(row["nis"] not in existing for row in rows), "duplicate_database_count": len(existing), "duplicate_file_count": len(duplicate_file), "preview": rows[:20]}
+        return {"total": len(rows), "new_count": sum(row["nis"] not in existing for row in rows), "duplicate_database_count": len(existing), "duplicate_file_count": len(parsed["duplicates"]), "preview": rows[:20], "duplicates": parsed["duplicates"][:20], "skipped_rows": parsed["skipped"][:20], "sheet_summaries": parsed["sheets"]}
     finally: conn.close()
 
 @app.post("/api/students/import")
 async def import_students(file: UploadFile = File(...)):
     if not file.filename or not file.filename.lower().endswith(".xlsx"): raise HTTPException(400, "Upload file Excel .xlsx")
-    rows, duplicate_file = read_students_excel(await file.read()); conn = db_or_500(); inserted = 0
+    parsed = read_students_excel(await read_limited_upload(file)); rows = parsed["rows"]; conn = db_or_500(); inserted = 0
     try:
         cursor = conn.cursor()
         for row in rows:
-            cursor.execute("INSERT INTO siswa (nis,nisn,nama,jeniskelamin,kelas) SELECT %s,%s,%s,%s,%s WHERE NOT EXISTS (SELECT 1 FROM siswa WHERE nis=%s)", (*row.values(), row["nis"]))
+            cursor.execute("INSERT INTO siswa (nis,nisn,nama,jeniskelamin,kelas) VALUES (%s,%s,%s,%s,%s) ON CONFLICT (nis) DO NOTHING", (row["nis"], row["nisn"], row["nama"], row["jeniskelamin"], row["kelas"]))
             inserted += cursor.rowcount
-        conn.commit(); return {"inserted": inserted, "skipped": len(rows) - inserted + len(duplicate_file)}
+        conn.commit(); return {"inserted": inserted, "skipped": len(rows) - inserted + len(parsed["duplicates"]), "skipped_rows": parsed["skipped"]}
     except psycopg2.Error:
         conn.rollback(); raise HTTPException(500, "Database error")
     finally: conn.close()

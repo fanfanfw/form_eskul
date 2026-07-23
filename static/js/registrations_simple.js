@@ -66,7 +66,7 @@ async function loadStudents() {
         <td><input class="form-control form-control-sm" id="nis-${student.id}" value="${esc(student.nis)}" aria-label="NIS ${esc(student.nama)}"></td>
         <td><input class="form-control form-control-sm" id="nisn-${student.id}" value="${esc(student.nisn)}" aria-label="NISN ${esc(student.nama)}"></td>
         <td><input class="form-control form-control-sm" id="nama-${student.id}" value="${esc(student.nama)}" aria-label="Nama"></td>
-        <td><select class="form-select form-select-sm" id="jk-${student.id}" aria-label="Jenis kelamin"><option ${student.jeniskelamin === 'L' ? 'selected' : ''}>L</option><option ${student.jeniskelamin === 'P' ? 'selected' : ''}>P</option></select></td>
+        <td><select class="form-select form-select-sm" id="jk-${student.id}" aria-label="Jenis kelamin"><option ${student.jeniskelamin === 'L' ? 'selected' : ''}>L</option><option ${student.jeniskelamin === 'P' ? 'selected' : ''}>P</option><option value="-" ${student.jeniskelamin === '-' ? 'selected' : ''}>Tidak diketahui</option></select></td>
         <td><input class="form-control form-control-sm" id="kelas-${student.id}" value="${esc(student.kelas)}" aria-label="Kelas"></td>
         <td><select class="form-select form-select-sm" id="eskul-${student.id}" aria-label="Eskul">${eskulOptions(student.eskul, 'Belum memilih', student.kelas)}</select></td>
         <td><button class="btn btn-sm btn-primary" type="button" data-action="update-student" data-id="${student.id}">Simpan</button> <button class="btn btn-sm btn-outline-danger" type="button" data-action="delete-student" data-id="${student.id}">Hapus</button></td>
@@ -227,7 +227,9 @@ async function previewStudentImport() {
   try {
     const data = await api('/api/students/preview-import', { method: 'POST', body: form });
     $('importStudentsBtn').disabled = !data.new_count;
-    $('importPreview').textContent = `${data.total} valid, ${data.new_count} baru, ${data.duplicate_database_count} duplikat database, ${data.duplicate_file_count} duplikat file.`;
+    const sheets = data.sheet_summaries.map(sheet => `${sheet.sheet}: ${sheet.rows}`).join(', ');
+    const skipped = data.skipped_rows.map(row => `${row.sheet} baris ${row.row}: ${row.reason}`).join('; ');
+    $('importPreview').textContent = `${data.total} valid, ${data.new_count} baru, ${data.duplicate_database_count} duplikat database, ${data.duplicate_file_count} duplikat file. Sheet: ${sheets}.${skipped ? ` Dilewati: ${skipped}.` : ''}`;
   } catch (error) {
     Swal.fire('Gagal', error.message, 'error');
   }

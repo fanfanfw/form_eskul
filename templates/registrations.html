@@ -64,7 +64,7 @@
           <input class="form-control" id="newNis" aria-label="NIS baru" placeholder="NIS">
           <input class="form-control" id="newNisn" aria-label="NISN baru" placeholder="NISN">
           <input class="form-control" id="newNama" aria-label="Nama baru" placeholder="Nama">
-          <select class="form-select" id="newJk" aria-label="Jenis kelamin"><option>L</option><option>P</option></select>
+          <select class="form-select" id="newJk" aria-label="Jenis kelamin"><option>L</option><option>P</option><option value="-">Tidak diketahui</option></select>
           <input class="form-control" id="newKelas" aria-label="Kelas baru" placeholder="Kelas">
           <select class="form-select" id="newEskul" aria-label="Eskul baru"></select>
           <button class="btn btn-primary" type="button" data-action="create-student">Tambah</button>
@@ -91,7 +91,7 @@
       </section>
       <section class="tab-pane fade" id="import">
         <h2>Import data siswa</h2>
-        <p>File .xlsx wajib memiliki kolom NIS, NISN, Nama, JenisKelamin, Kelas.</p>
+        <p>File .xlsx dapat memiliki banyak sheet dan posisi kolom dinamis. Nama, jenis kelamin, dan kelas wajib tersedia; NIS dan NISN boleh kosong.</p>
         <label class="form-label" for="studentImportFile">File Excel</label>
         <input class="form-control" type="file" id="studentImportFile" accept=".xlsx">
         <div class="mt-3">
@@ -115,7 +115,7 @@
   </main>
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-  <script src="{{ url_for('static', path='/js/registrations_simple.js') }}?v=4"></script>
+  <script src="{{ url_for('static', path='/js/registrations_simple.js') }}?v=5"></script>
   {% endif %}
 </body>
 </html>
