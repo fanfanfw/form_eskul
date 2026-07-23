@@ -33,7 +33,6 @@ ADMIN_PIN = os.getenv("ADMIN_PIN")
 SESSION_SECRET = os.getenv("SESSION_SECRET") or os.urandom(32).hex()
 
 app = FastAPI(title=APP_TITLE, description=APP_DESCRIPTION)
-app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, same_site="lax", https_only=os.getenv("SESSION_HTTPS_ONLY", "true").lower() == "true")
 templates = Jinja2Templates(directory="templates")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -53,6 +52,8 @@ async def protect_admin(request: Request, call_next):
             return templates.TemplateResponse("registrations.html", {"request": request, "login": True, "admin_configured": bool(ADMIN_PIN)}, status_code=401)
         return HTMLResponse("Admin authentication required", status_code=401)
     return await call_next(request)
+
+app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, same_site="lax", https_only=os.getenv("SESSION_HTTPS_ONLY", "true").lower() == "true")
 
 def get_db_connection():
     try:
