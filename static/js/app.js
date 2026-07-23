@@ -21,12 +21,13 @@ document.addEventListener('DOMContentLoaded', function() {
     function showAlert(message, type = 'success') {
         const alertDiv = document.createElement('div');
         alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
-        alertDiv.innerHTML = `
-            <i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-triangle'} me-2"></i>
-            ${message}
-            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-        `;
-        
+        const icon = document.createElement('i');
+        icon.className = `fas fa-${type === 'success' ? 'check-circle' : 'exclamation-triangle'} me-2`;
+        const closeButton = document.createElement('button');
+        closeButton.type = 'button';
+        closeButton.className = 'btn-close';
+        closeButton.dataset.bsDismiss = 'alert';
+        alertDiv.append(icon, document.createTextNode(message), closeButton);
         alertContainer.appendChild(alertDiv);
         
         // Auto remove after 5 seconds

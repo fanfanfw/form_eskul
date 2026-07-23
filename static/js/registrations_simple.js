@@ -1,671 +1,277 @@
-// JavaScript SIMPLE untuk registrations - version 2
-$(document).ready(function() {
-    console.log('🚀 Registrations page loaded - Simple version');
-    loadAndDisplayData();
-    loadEskulManager();
-    loadClassFilter();
-    loadStudentManager();
-});
+let page = 1;
+let pages = 1;
+let options = { kelas: [], eskul: [] };
 
-async function loadAndDisplayData() {
-    try {
-        console.log('📡 Fetching data from API...');
-        
-        const response = await fetch('/api/registrations');
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-        }
-        
-        const data = await response.json();
-        console.log('✅ Data received:', data);
-        
-        if (!data.registrations || !Array.isArray(data.registrations)) {
-            throw new Error('Invalid data format');
-        }
-        
-        // SIMPLE counting - no complex logic
-        const allStudents = data.registrations;
-        const totalSiswa = allStudents.length;
-        
-        // Count students with eskul - VERY SIMPLE CHECK
-        let sudahDaftarCount = 0;
-        allStudents.forEach(student => {
-            if (student.nama_eskul && student.nama_eskul !== null && student.nama_eskul.trim() !== '') {
-                sudahDaftarCount++;
-                console.log(`✅ Found registered student: ${student.nama} -> ${student.nama_eskul}`);
-            }
-        });
-        
-        const belumDaftar = totalSiswa - sudahDaftarCount;
-        
-        // Count unique classes
-        const uniqueClasses = [...new Set(allStudents.map(s => s.kelas).filter(k => k))];
-        const totalKelas = uniqueClasses.length;
-        
-        console.log('📊 FINAL COUNTS:');
-        console.log(`   Total: ${totalSiswa}`);
-        console.log(`   Sudah Daftar: ${sudahDaftarCount}`);
-        console.log(`   Belum Daftar: ${belumDaftar}`);
-        console.log(`   Total Kelas: ${totalKelas}`);
-        
-        // Update display IMMEDIATELY
-        document.getElementById('totalSiswa').textContent = totalSiswa;
-        document.getElementById('sudahDaftar').textContent = sudahDaftarCount;
-        document.getElementById('belumDaftar').textContent = belumDaftar;
-        document.getElementById('totalKelas').textContent = totalKelas;
-        
-        console.log('✅ Display updated');
-        
-        // Build table
-        buildTable(allStudents);
-        
-    } catch (error) {
-        console.error('❌ Error:', error);
-        document.getElementById('loadingSpinner').innerHTML = `
-            <div class="alert alert-danger">
-                Error loading data: ${error.message}
-            </div>
-        `;
-    }
+const $ = id => document.getElementById(id);
+const esc = value => String(value ?? '').replace(
+  /[&<>"']/g,
+  character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character],
+);
+
+async function api(url, init) {
+  const response = await fetch(url, init);
+  const data = await response.json().catch(() => ({}));
+  if (response.status === 401) {
+    location = '/registrations';
+    throw Error('Sesi berakhir');
+  }
+  if (!response.ok) throw Error(data.detail || 'Permintaan gagal');
+  return data;
 }
 
-function buildTable(students) {
-    console.log('🏗️ Building table...');
-    
-    const tbody = document.querySelector('#registrationTable tbody');
-    tbody.innerHTML = '';
-    
-    students.forEach(student => {
-        const row = document.createElement('tr');
-        
-        // Determine eskul display
-        let eskulDisplay = '<span class="badge bg-warning">Belum Daftar</span>';
-        if (student.nama_eskul && student.nama_eskul.trim() !== '') {
-            eskulDisplay = `<span class="badge bg-success">${student.nama_eskul}</span>`;
-        }
-        
-        // Determine gender display
-        let genderDisplay = '<span class="badge bg-secondary">-</span>';
-        if (student.jeniskelamin === 'L') {
-            genderDisplay = '<span class="badge bg-info">Laki-laki</span>';
-        } else if (student.jeniskelamin === 'P') {
-            genderDisplay = '<span class="badge bg-success">Perempuan</span>';
-        }
-        
-        row.innerHTML = `
-            <td>${student.nis || '-'}</td>
-            <td>${student.nisn || '-'}</td>
-            <td>
-                <div class="d-flex align-items-center">
-                    <i class="fas fa-user-circle me-2 text-primary"></i>
-                    <strong>${student.nama || 'Nama tidak tersedia'}</strong>
-                </div>
-            </td>
-            <td>${genderDisplay}</td>
-            <td><span class="badge bg-secondary">${student.kelas || 'Tidak diketahui'}</span></td>
-            <td>${eskulDisplay}</td>
-        `;
-        
-        tbody.appendChild(row);
-    });
-    
-    // Initialize DataTable
-    $('#registrationTable').DataTable({
-        responsive: true,
-        pageLength: 25,
-        order: [[4, 'asc'], [2, 'asc']], // Sort by class, then name
-        language: {
-            search: "Cari:",
-            lengthMenu: "Tampilkan _MENU_ data per halaman",
-            info: "Menampilkan _START_ sampai _END_ dari _TOTAL_ data",
-            infoEmpty: "Menampilkan 0 sampai 0 dari 0 data",
-            infoFiltered: "(difilter dari _MAX_ total data)",
-            paginate: {
-                first: "Pertama",
-                last: "Terakhir", 
-                next: "Selanjutnya",
-                previous: "Sebelumnya"
-            },
-            emptyTable: "Tidak ada data yang tersedia"
-        }
-    });
-    
-    // Show table and hide loading
-    document.getElementById('loadingSpinner').style.display = 'none';
-    document.getElementById('tableContainer').style.display = 'block';
-    
-    console.log('✅ Table built and displayed');
+function params(includePage = true) {
+  const query = new URLSearchParams();
+  [
+    ['search', $('search').value],
+    ['kelas', $('kelasFilter').value],
+    ['eskul_id', $('eskulFilter').value],
+    ['status', $('statusFilter').value],
+  ].forEach(([key, value]) => value && query.set(key, value));
+  if (includePage) {
+    query.set('page', page);
+    query.set('page_size', 25);
+  }
+  return query;
 }
 
-// Add export functions to window for buttons
-window.exportToCSV = function() {
-    console.log('📄 Exporting to CSV...');
-    
-    try {
-        // Get the raw data instead of the formatted table data
-        fetch('/api/registrations')
-            .then(response => response.json())
-            .then(data => {
-                // Create CSV header
-                let csv = 'NIS,NISN,Nama Siswa,Jenis Kelamin,Kelas,Ekstrakurikuler\n';
-                
-                // Process each student record
-                data.registrations.forEach(student => {
-                    const nis = (student.nis || '').toString().replace(/,/g, ';');
-                    const nisn = (student.nisn || '').toString().replace(/,/g, ';');
-                    const nama = (student.nama || 'Nama tidak tersedia').toString().replace(/,/g, ';');
-                    
-                    let jenisKelamin = '';
-                    if (student.jeniskelamin === 'L') {
-                        jenisKelamin = 'Laki-laki';
-                    } else if (student.jeniskelamin === 'P') {
-                        jenisKelamin = 'Perempuan';
-                    } else {
-                        jenisKelamin = 'Tidak diketahui';
-                    }
-                    
-                    const kelas = (student.kelas || 'Tidak diketahui').toString().replace(/,/g, ';');
-                    
-                    let eskul = 'Belum Daftar';
-                    if (student.nama_eskul && student.nama_eskul.trim() !== '') {
-                        eskul = student.nama_eskul.toString().replace(/,/g, ';');
-                    }
-                    
-                    // Add row to CSV
-                    csv += `"${nis}","${nisn}","${nama}","${jenisKelamin}","${kelas}","${eskul}"\n`;
-                });
-                
-                // Create and download file
-                const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-                const link = document.createElement('a');
-                
-                if (link.download !== undefined) {
-                    const url = URL.createObjectURL(blob);
-                    link.setAttribute('href', url);
-                    
-                    // Create filename with current date
-                    const today = new Date();
-                    const dateStr = today.getFullYear() + '-' + 
-                                  String(today.getMonth() + 1).padStart(2, '0') + '-' + 
-                                  String(today.getDate()).padStart(2, '0');
-                    
-                    link.setAttribute('download', `registrasi_eskul_${dateStr}.csv`);
-                    link.style.visibility = 'hidden';
-                    
-                    // Add to page, click, and remove
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-                    
-                    console.log('✅ CSV file downloaded successfully');
-                    showSuccessMessage(`File CSV berhasil didownload! (${data.registrations.length} records)`);
-                    
-                    // Clean up URL
-                    setTimeout(() => URL.revokeObjectURL(url), 1000);
-                } else {
-                    throw new Error('Browser tidak mendukung download otomatis');
-                }
-            })
-            .catch(error => {
-                console.error('❌ Error fetching data for export:', error);
-                showErrorMessage('Gagal mengambil data untuk export: ' + error.message);
-            });
-            
-    } catch (error) {
-        console.error('❌ Error exporting CSV:', error);
-        showErrorMessage('Gagal export CSV: ' + error.message);
-    }
-};
-
-window.printTable = function() {
-    console.log('🖨️ Printing table...');
-    
-    try {
-        // Get current date for header
-        const currentDate = new Date().toLocaleDateString('id-ID', {
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric'
-        });
-        
-        // Get table data
-        const table = document.getElementById('registrationTable');
-        const tableClone = table.cloneNode(true);
-        
-        // Remove any buttons or interactive elements from the clone
-        const buttons = tableClone.querySelectorAll('button, .btn');
-        buttons.forEach(btn => btn.remove());
-        
-        // Create print content
-        const printContent = `
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <title>Data Registrasi Ekstrakurikuler</title>
-                <style>
-                    body { 
-                        font-family: Arial, sans-serif; 
-                        margin: 20px;
-                        font-size: 12px;
-                    }
-                    table { 
-                        border-collapse: collapse; 
-                        width: 100%; 
-                        margin-top: 20px;
-                    }
-                    th, td { 
-                        border: 1px solid #ddd; 
-                        padding: 8px; 
-                        text-align: left; 
-                    }
-                    th { 
-                        background-color: #f2f2f2; 
-                        font-weight: bold;
-                    }
-                    h1 { 
-                        text-align: center; 
-                        color: #333; 
-                        margin-bottom: 10px;
-                    }
-                    .header-info {
-                        text-align: center;
-                        margin-bottom: 20px;
-                        color: #666;
-                    }
-                    .badge {
-                        padding: 2px 6px;
-                        border-radius: 3px;
-                        font-size: 10px;
-                    }
-                    .bg-success { background-color: #d4edda; color: #155724; }
-                    .bg-warning { background-color: #fff3cd; color: #856404; }
-                    .bg-info { background-color: #d1ecf1; color: #0c5460; }
-                    .bg-secondary { background-color: #e2e3e5; color: #383d41; }
-                    @media print {
-                        body { margin: 0; }
-                        .no-print { display: none; }
-                    }
-                </style>
-            </head>
-            <body>
-                <h1>Data Registrasi Ekstrakurikuler</h1>
-                <div class="header-info">
-                    <p>Tanggal Cetak: ${currentDate}</p>
-                    <p>Total Data: ${document.getElementById('totalSiswa').textContent} siswa</p>
-                </div>
-                ${tableClone.outerHTML}
-                <div style="margin-top: 30px; font-size: 10px; color: #666;">
-                    <p>Dicetak dari Form Eskul Siswa - ${window.location.origin}</p>
-                </div>
-            </body>
-            </html>
-        `;
-        
-        // Open print window
-        const printWindow = window.open('', '_blank', 'width=800,height=600');
-        printWindow.document.write(printContent);
-        printWindow.document.close();
-        
-        // Wait for content to load then print
-        printWindow.onload = function() {
-            printWindow.focus();
-            printWindow.print();
-        };
-        
-        console.log('✅ Print dialog opened');
-        
-    } catch (error) {
-        console.error('❌ Error printing:', error);
-        showErrorMessage('Gagal print: ' + error.message);
-    }
-};
-
-window.refreshData = function() {
-    console.log('🔄 Refreshing data...');
-    
-    // Show loading
-    document.getElementById('tableContainer').style.display = 'none';
-    document.getElementById('loadingSpinner').style.display = 'block';
-    
-    // Destroy existing DataTable if it exists
-    if ($.fn.DataTable.isDataTable('#registrationTable')) {
-        $('#registrationTable').DataTable().destroy();
-    }
-    
-    // Clear table body
-    document.querySelector('#registrationTable tbody').innerHTML = '';
-    
-    // Reload data
-    setTimeout(() => {
-        loadAndDisplayData();
-    }, 500);
-};
-
-function escapeHtml(value) {
-    return String(value ?? '').replace(/[&<>'"]/g, char => ({
-        '&': '&amp;',
-        '<': '&lt;',
-        '>': '&gt;',
-        "'": '&#39;',
-        '"': '&quot;'
-    }[char]));
+function eskulOptions(selected, blank = 'Belum memilih') {
+  return `<option value="">${blank}</option>` + options.eskul.map(eskul => `
+    <option value="${eskul.id}" ${Number(selected) === eskul.id ? 'selected' : ''}>${esc(eskul.nama_eskul)}</option>
+  `).join('');
 }
 
-function getStudentImportFile() {
-    const input = document.getElementById('studentImportFile');
-    if (!input.files.length) {
-        showErrorMessage('Pilih file Excel .xlsx dulu');
-        return null;
-    }
-    return input.files[0];
+async function loadStudents() {
+  $('studentRows').innerHTML = '<tr><td colspan="8">Memuat data...</td></tr>';
+  try {
+    const data = await api('/api/students/manage?' + params());
+    pages = data.pages;
+    options = data.options;
+    $('totalSiswa').textContent = data.summary.total;
+    $('sudahDaftar').textContent = data.summary.assigned;
+    $('belumDaftar').textContent = data.summary.unassigned;
+    $('totalKelas').textContent = data.summary.classes;
+    $('kelasFilter').innerHTML = '<option value="">Semua kelas</option>' + options.kelas.map(kelas => `
+      <option ${kelas === $('kelasFilter').dataset.value ? 'selected' : ''}>${esc(kelas)}</option>
+    `).join('');
+    $('eskulFilter').innerHTML = '<option value="">Semua eskul</option>' + options.eskul.map(eskul => `
+      <option value="${eskul.id}" ${String(eskul.id) === $('eskulFilter').dataset.value ? 'selected' : ''}>${esc(eskul.nama_eskul)}</option>
+    `).join('');
+    $('newEskul').innerHTML = eskulOptions(null);
+    $('studentRows').innerHTML = data.items.map(student => `
+      <tr>
+        <td><input class="student-check" type="checkbox" value="${student.id}" aria-label="Pilih ${esc(student.nama)}"></td>
+        <td><input class="form-control form-control-sm" id="nis-${student.id}" value="${esc(student.nis)}" aria-label="NIS ${esc(student.nama)}"></td>
+        <td><input class="form-control form-control-sm" id="nisn-${student.id}" value="${esc(student.nisn)}" aria-label="NISN ${esc(student.nama)}"></td>
+        <td><input class="form-control form-control-sm" id="nama-${student.id}" value="${esc(student.nama)}" aria-label="Nama"></td>
+        <td><select class="form-select form-select-sm" id="jk-${student.id}" aria-label="Jenis kelamin"><option ${student.jeniskelamin === 'L' ? 'selected' : ''}>L</option><option ${student.jeniskelamin === 'P' ? 'selected' : ''}>P</option></select></td>
+        <td><input class="form-control form-control-sm" id="kelas-${student.id}" value="${esc(student.kelas)}" aria-label="Kelas"></td>
+        <td><select class="form-select form-select-sm" id="eskul-${student.id}" aria-label="Eskul">${eskulOptions(student.eskul)}</select></td>
+        <td><button class="btn btn-sm btn-primary" type="button" data-action="update-student" data-id="${student.id}">Simpan</button> <button class="btn btn-sm btn-outline-danger" type="button" data-action="delete-student" data-id="${student.id}">Hapus</button></td>
+      </tr>
+    `).join('') || '<tr><td colspan="8">Tidak ada data.</td></tr>';
+    $('pagination').innerHTML = Array.from({ length: pages }, (_, index) => index + 1).map(number => `
+      <li class="page-item ${number === page ? 'active' : ''}"><button class="page-link" type="button" data-action="go-page" data-page="${number}">${number}</button></li>
+    `).join('');
+    $('exportBtn').href = '/api/registrations/export?' + params(false);
+    $('checkAll').checked = false;
+  } catch (error) {
+    $('studentRows').innerHTML = '<tr><td colspan="8">Data gagal dimuat.</td></tr>';
+    Swal.fire('Gagal', error.message, 'error');
+  }
 }
 
-window.previewStudentImport = async function() {
-    const file = getStudentImportFile();
-    if (!file) return;
+function studentData(id) {
+  const form = new FormData();
+  ['nis', 'nisn', 'nama', 'jk', 'kelas'].forEach(key => {
+    form.append(key === 'jk' ? 'jeniskelamin' : key, $(`${key}-${id}`).value.trim());
+  });
+  form.append('eskul_id', $(`eskul-${id}`).value);
+  return form;
+}
 
-    const formData = new FormData();
-    formData.append('file', file);
+async function updateStudent(id) {
+  try {
+    await api(`/api/students/${id}/update`, { method: 'POST', body: studentData(id) });
+    await Swal.fire('Tersimpan', 'Data siswa diperbarui', 'success');
+    loadStudents();
+  } catch (error) {
+    Swal.fire('Gagal', error.message, 'error');
+  }
+}
 
-    try {
-        const response = await fetch('/api/students/preview-import', {
-            method: 'POST',
-            body: formData
-        });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.detail || 'Preview gagal');
+async function createStudent() {
+  const form = new FormData();
+  [['nis', 'newNis'], ['nisn', 'newNisn'], ['nama', 'newNama'], ['jeniskelamin', 'newJk'], ['kelas', 'newKelas'], ['eskul_id', 'newEskul']].forEach(([key, id]) => {
+    form.append(key, $(id).value.trim());
+  });
+  try {
+    await api('/api/students/create', { method: 'POST', body: form });
+    await Swal.fire('Ditambahkan', 'Siswa berhasil ditambah', 'success');
+    loadStudents();
+  } catch (error) {
+    Swal.fire('Gagal', error.message, 'error');
+  }
+}
 
-        document.getElementById('importStudentsBtn').disabled = data.new_count === 0;
-        document.getElementById('importPreview').innerHTML = `
-            <div class="alert alert-info mb-2">
-                Total valid: ${data.total}<br>
-                Baru: ${data.new_count}<br>
-                Duplikat database: ${data.duplicate_database_count}<br>
-                Duplikat file: ${data.duplicate_file_count}
-            </div>
-            <div class="small text-muted">Preview 20 baris pertama</div>
-            <div class="table-responsive" style="max-height: 220px; overflow:auto;">
-                <table class="table table-sm table-bordered">
-                    <thead><tr><th>NIS</th><th>NISN</th><th>Nama</th><th>JK</th><th>Kelas</th></tr></thead>
-                    <tbody>${data.preview.map(row => `<tr><td>${escapeHtml(row.nis)}</td><td>${escapeHtml(row.nisn)}</td><td>${escapeHtml(row.nama)}</td><td>${escapeHtml(row.jeniskelamin)}</td><td>${escapeHtml(row.kelas)}</td></tr>`).join('')}</tbody>
-                </table>
-            </div>
-        `;
-    } catch (error) {
-        showErrorMessage(error.message);
-    }
-};
+async function deleteStudent(id) {
+  const name = $(`nama-${id}`).value;
+  const result = await Swal.fire({
+    title: `Hapus ${name}?`,
+    text: 'Data siswa akan dihapus permanen.',
+    icon: 'warning',
+    showCancelButton: true,
+    confirmButtonText: 'Hapus',
+    showLoaderOnConfirm: true,
+    preConfirm: () => api(`/api/students/${id}`, { method: 'DELETE' }).catch(error => Swal.showValidationMessage(error.message)),
+  });
+  if (result.isConfirmed) loadStudents();
+}
 
-window.importStudents = async function() {
-    const file = getStudentImportFile();
-    if (!file) return;
-
-    const formData = new FormData();
-    formData.append('file', file);
-
-    try {
-        const response = await fetch('/api/students/import', {
-            method: 'POST',
-            body: formData
-        });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.detail || 'Import gagal');
-
-        showSuccessMessage(`Import selesai. Masuk: ${data.inserted}, dilewati: ${data.skipped}`);
-        document.getElementById('importStudentsBtn').disabled = true;
-        refreshData();
-    } catch (error) {
-        showErrorMessage(error.message);
-    }
-};
+async function bulkDeleteStudents() {
+  const ids = [...document.querySelectorAll('.student-check:checked')].map(input => Number(input.value));
+  if (!ids.length) return Swal.fire('Pilih siswa', '', 'info');
+  const result = await Swal.fire({
+    title: `Hapus ${ids.length} siswa?`,
+    icon: 'warning',
+    showCancelButton: true,
+    confirmButtonText: 'Hapus',
+    showLoaderOnConfirm: true,
+    preConfirm: () => api('/api/students/bulk-delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(ids),
+    }).catch(error => Swal.showValidationMessage(error.message)),
+  });
+  if (result.isConfirmed) loadStudents();
+}
 
 async function loadEskulManager() {
-    try {
-        const response = await fetch('/api/eskul/manage');
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.detail || 'Gagal memuat eskul');
-
-        document.getElementById('eskulManager').innerHTML = `
-            <table class="table table-sm table-bordered align-middle">
-                <thead><tr><th>Nama Eskul</th><th>Siswa</th><th>Aksi</th></tr></thead>
-                <tbody>${data.eskul.map(item => `
-                    <tr>
-                        <td><input class="form-control form-control-sm" id="eskul-${item.id}" value="${escapeHtml(item.nama_eskul)}"></td>
-                        <td>${item.siswa_count}</td>
-                        <td class="text-nowrap">
-                            <button class="btn btn-sm btn-primary me-1" onclick="updateEskul(${item.id})">Simpan</button>
-                            <button class="btn btn-sm btn-danger" onclick="deleteEskul(${item.id})" ${item.siswa_count > 0 ? 'disabled' : ''}>Hapus</button>
-                        </td>
-                    </tr>
-                `).join('')}</tbody>
-            </table>
-        `;
-    } catch (error) {
-        document.getElementById('eskulManager').innerHTML = `<div class="alert alert-danger">${error.message}</div>`;
-    }
-}
-
-window.createEskul = async function() {
-    const input = document.getElementById('newEskulName');
-    const nama = input.value.trim();
-    if (!nama) return showErrorMessage('Nama eskul wajib diisi');
-
-    const formData = new FormData();
-    formData.append('nama_eskul', nama);
-
-    try {
-        const response = await fetch('/api/eskul/create', { method: 'POST', body: formData });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.detail || 'Gagal tambah eskul');
-        input.value = '';
-        showSuccessMessage('Eskul berhasil ditambahkan');
-        loadEskulManager();
-    } catch (error) {
-        showErrorMessage(error.message);
-    }
-};
-
-window.updateEskul = async function(id) {
-    const nama = document.getElementById(`eskul-${id}`).value.trim();
-    if (!nama) return showErrorMessage('Nama eskul wajib diisi');
-
-    const formData = new FormData();
-    formData.append('nama_eskul', nama);
-
-    try {
-        const response = await fetch(`/api/eskul/${id}/update`, { method: 'POST', body: formData });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.detail || 'Gagal update eskul');
-        showSuccessMessage('Eskul berhasil disimpan');
-        loadEskulManager();
-    } catch (error) {
-        showErrorMessage(error.message);
-    }
-};
-
-window.deleteEskul = async function(id) {
-    if (!confirm('Hapus eskul ini?')) return;
-
-    try {
-        const response = await fetch(`/api/eskul/${id}`, { method: 'DELETE' });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.detail || 'Gagal hapus eskul');
-        showSuccessMessage('Eskul berhasil dihapus');
-        loadEskulManager();
-    } catch (error) {
-        showErrorMessage(error.message);
-    }
-};
-
-async function loadClassFilter() {
-    try {
-        const response = await fetch('/api/kelas');
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.detail || 'Gagal memuat kelas');
-        document.getElementById('studentClassFilter').innerHTML = '<option value="">Semua kelas</option>' + data.kelas.map(kelas => `<option value="${escapeHtml(kelas)}">${escapeHtml(kelas)}</option>`).join('');
-    } catch (error) {
-        showErrorMessage(error.message);
-    }
-}
-
-window.loadStudentManager = async function() {
-    const kelas = document.getElementById('studentClassFilter').value;
-    const url = kelas ? `/api/students/manage?kelas=${encodeURIComponent(kelas)}` : '/api/students/manage';
-
-    try {
-        const response = await fetch(url);
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.detail || 'Gagal memuat siswa');
-        document.getElementById('studentManager').innerHTML = `
-            <table class="table table-sm table-bordered align-middle">
-                <thead>
-                    <tr>
-                        <th><input type="checkbox" onchange="toggleStudentChecks(this.checked)"></th>
-                        <th>NIS</th><th>NISN</th><th>Nama</th><th>JK</th><th>Kelas</th><th>Aksi</th>
-                    </tr>
-                </thead>
-                <tbody>${data.students.map(student => `
-                    <tr>
-                        <td><input type="checkbox" class="student-check" value="${student.id}"></td>
-                        <td><input class="form-control form-control-sm" id="student-nis-${student.id}" value="${escapeHtml(student.nis)}"></td>
-                        <td><input class="form-control form-control-sm" id="student-nisn-${student.id}" value="${escapeHtml(student.nisn)}"></td>
-                        <td><input class="form-control form-control-sm" id="student-nama-${student.id}" value="${escapeHtml(student.nama)}"></td>
-                        <td>
-                            <select class="form-select form-select-sm" id="student-jk-${student.id}">
-                                <option value="L" ${student.jeniskelamin === 'L' ? 'selected' : ''}>L</option>
-                                <option value="P" ${student.jeniskelamin === 'P' ? 'selected' : ''}>P</option>
-                            </select>
-                        </td>
-                        <td><input class="form-control form-control-sm" id="student-kelas-${student.id}" value="${escapeHtml(student.kelas)}"></td>
-                        <td class="text-nowrap">
-                            <button class="btn btn-sm btn-primary me-1" onclick="updateStudent(${student.id})">Simpan</button>
-                            <button class="btn btn-sm btn-danger" onclick="deleteStudent(${student.id})">Hapus</button>
-                        </td>
-                    </tr>
-                `).join('')}</tbody>
-            </table>
-        `;
-    } catch (error) {
-        document.getElementById('studentManager').innerHTML = `<div class="alert alert-danger">${error.message}</div>`;
-    }
-};
-
-window.toggleStudentChecks = function(checked) {
-    document.querySelectorAll('.student-check').forEach(input => input.checked = checked);
-};
-
-function studentFormData(prefix = 'student') {
-    const formData = new FormData();
-    formData.append('nis', document.getElementById(`${prefix}Nis`).value.trim());
-    formData.append('nisn', document.getElementById(`${prefix}Nisn`).value.trim());
-    formData.append('nama', document.getElementById(`${prefix}Nama`).value.trim());
-    formData.append('jeniskelamin', document.getElementById(`${prefix}Jk`).value);
-    formData.append('kelas', document.getElementById(`${prefix}Kelas`).value.trim());
-    return formData;
-}
-
-window.createStudent = async function() {
-    try {
-        const response = await fetch('/api/students/create', { method: 'POST', body: studentFormData() });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.detail || 'Gagal tambah siswa');
-        ['studentNis', 'studentNisn', 'studentNama', 'studentKelas'].forEach(id => document.getElementById(id).value = '');
-        showSuccessMessage('Siswa berhasil ditambahkan');
-        refreshData();
-        loadClassFilter();
-        loadStudentManager();
-    } catch (error) {
-        showErrorMessage(error.message);
-    }
-};
-
-window.updateStudent = async function(id) {
-    const formData = new FormData();
-    formData.append('nis', document.getElementById(`student-nis-${id}`).value.trim());
-    formData.append('nisn', document.getElementById(`student-nisn-${id}`).value.trim());
-    formData.append('nama', document.getElementById(`student-nama-${id}`).value.trim());
-    formData.append('jeniskelamin', document.getElementById(`student-jk-${id}`).value);
-    formData.append('kelas', document.getElementById(`student-kelas-${id}`).value.trim());
-
-    try {
-        const response = await fetch(`/api/students/${id}/update`, { method: 'POST', body: formData });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.detail || 'Gagal update siswa');
-        showSuccessMessage('Siswa berhasil disimpan');
-        refreshData();
-        loadClassFilter();
-        loadStudentManager();
-    } catch (error) {
-        showErrorMessage(error.message);
-    }
-};
-
-window.deleteStudent = async function(id) {
-    if (!confirm('Hapus siswa ini?')) return;
-
-    try {
-        const response = await fetch(`/api/students/${id}`, { method: 'DELETE' });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.detail || 'Gagal hapus siswa');
-        showSuccessMessage('Siswa berhasil dihapus');
-        refreshData();
-        loadClassFilter();
-        loadStudentManager();
-    } catch (error) {
-        showErrorMessage(error.message);
-    }
-};
-
-window.bulkDeleteStudents = async function() {
-    const ids = Array.from(document.querySelectorAll('.student-check:checked')).map(input => Number(input.value));
-    if (!ids.length) return showErrorMessage('Pilih siswa dulu');
-    if (!confirm(`Hapus ${ids.length} siswa terpilih?`)) return;
-
-    try {
-        const response = await fetch('/api/students/bulk-delete', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(ids)
-        });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.detail || 'Gagal bulk delete siswa');
-        showSuccessMessage(`${data.deleted} siswa berhasil dihapus`);
-        refreshData();
-        loadClassFilter();
-        loadStudentManager();
-    } catch (error) {
-        showErrorMessage(error.message);
-    }
-};
-
-// Helper functions for messages
-function showSuccessMessage(message) {
-    showMessage(message, 'success');
-}
-
-function showErrorMessage(message) {
-    showMessage(message, 'danger');
-}
-
-function showMessage(message, type) {
-    // Create alert element
-    const alertDiv = document.createElement('div');
-    alertDiv.className = `alert alert-${type} alert-dismissible fade show position-fixed`;
-    alertDiv.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
-    
-    alertDiv.innerHTML = `
-        <i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-triangle'} me-2"></i>
-        ${message}
-        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+  $('eskulManager').textContent = 'Memuat data...';
+  try {
+    const data = await api('/api/eskul/manage');
+    $('eskulManager').innerHTML = `
+      <table class="table">
+        <thead><tr><th>Nama</th><th>Siswa</th><th>Aksi</th></tr></thead>
+        <tbody>${data.eskul.map(eskul => `
+          <tr>
+            <td><input class="form-control" id="manage-eskul-${eskul.id}" value="${esc(eskul.nama_eskul)}"></td>
+            <td>${eskul.siswa_count}</td>
+            <td><button class="btn btn-sm btn-primary" type="button" data-action="save-eskul" data-id="${eskul.id}">Simpan</button> <button class="btn btn-sm btn-outline-danger" type="button" data-action="delete-eskul" data-id="${eskul.id}" data-count="${eskul.siswa_count}">Hapus</button></td>
+          </tr>
+        `).join('')}</tbody>
+      </table>
     `;
-    
-    // Add to page
-    document.body.appendChild(alertDiv);
-    
-    // Auto remove after 5 seconds
-    setTimeout(() => {
-        if (alertDiv.parentNode) {
-            alertDiv.remove();
-        }
-    }, 5000);
+  } catch (error) {
+    $('eskulManager').textContent = 'Data gagal dimuat.';
+    Swal.fire('Gagal', error.message, 'error');
+  }
 }
+
+async function eskulRequest(url, name) {
+  const form = new FormData();
+  form.append('nama_eskul', name);
+  return api(url, { method: 'POST', body: form });
+}
+
+async function createEskul() {
+  try {
+    await eskulRequest('/api/eskul/create', $('newEskulName').value.trim());
+    $('newEskulName').value = '';
+    await Swal.fire('Ditambahkan', 'Eskul baru tersedia', 'success');
+    loadEskulManager();
+    loadStudents();
+  } catch (error) {
+    Swal.fire('Gagal', error.message, 'error');
+  }
+}
+
+async function saveEskul(id) {
+  try {
+    await eskulRequest(`/api/eskul/${id}/update`, $(`manage-eskul-${id}`).value.trim());
+    await Swal.fire('Tersimpan', '', 'success');
+    loadEskulManager();
+    loadStudents();
+  } catch (error) {
+    Swal.fire('Gagal', error.message, 'error');
+  }
+}
+
+async function deleteEskul(id, count) {
+  const name = $(`manage-eskul-${id}`).value;
+  const result = await Swal.fire({
+    title: `Hapus ${name}?`,
+    text: `Pilihan ${count} siswa akan dikosongkan.`,
+    icon: 'warning',
+    showCancelButton: true,
+    confirmButtonText: 'Hapus',
+    showLoaderOnConfirm: true,
+    preConfirm: () => api(`/api/eskul/${id}`, { method: 'DELETE' }).catch(error => Swal.showValidationMessage(error.message)),
+  });
+  if (result.isConfirmed) {
+    await Swal.fire('Dihapus', `${result.value.affected_students} pilihan siswa dikosongkan.`, 'success');
+    loadEskulManager();
+    loadStudents();
+  }
+}
+
+async function previewStudentImport() {
+  const file = $('studentImportFile').files[0];
+  if (!file) return Swal.fire('Pilih file .xlsx', '', 'info');
+  const form = new FormData();
+  form.append('file', file);
+  try {
+    const data = await api('/api/students/preview-import', { method: 'POST', body: form });
+    $('importStudentsBtn').disabled = !data.new_count;
+    $('importPreview').textContent = `${data.total} valid, ${data.new_count} baru, ${data.duplicate_database_count} duplikat database, ${data.duplicate_file_count} duplikat file.`;
+  } catch (error) {
+    Swal.fire('Gagal', error.message, 'error');
+  }
+}
+
+async function importStudents() {
+  const button = $('importStudentsBtn');
+  const form = new FormData();
+  form.append('file', $('studentImportFile').files[0]);
+  button.disabled = true;
+  try {
+    const data = await api('/api/students/import', { method: 'POST', body: form });
+    await Swal.fire('Import selesai', `${data.inserted} masuk, ${data.skipped} dilewati`, 'success');
+    loadStudents();
+  } catch (error) {
+    button.disabled = false;
+    Swal.fire('Gagal', error.message, 'error');
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  $('filters').addEventListener('submit', event => {
+    event.preventDefault();
+    $('kelasFilter').dataset.value = $('kelasFilter').value;
+    $('eskulFilter').dataset.value = $('eskulFilter').value;
+    page = 1;
+    loadStudents();
+  });
+  $('checkAll').addEventListener('change', event => {
+    document.querySelectorAll('.student-check').forEach(input => { input.checked = event.target.checked; });
+  });
+  document.addEventListener('click', event => {
+    const button = event.target.closest('[data-action]');
+    if (!button) return;
+    const id = Number(button.dataset.id);
+    const actions = {
+      'create-student': () => createStudent(),
+      'bulk-delete-students': () => bulkDeleteStudents(),
+      'preview-import': () => previewStudentImport(),
+      'import-students': () => importStudents(),
+      'create-eskul': () => createEskul(),
+      'update-student': () => updateStudent(id),
+      'delete-student': () => deleteStudent(id),
+      'save-eskul': () => saveEskul(id),
+      'delete-eskul': () => deleteEskul(id, Number(button.dataset.count)),
+      'go-page': () => { page = Number(button.dataset.page); loadStudents(); },
+    };
+    actions[button.dataset.action]?.();
+  });
+  loadStudents();
+  loadEskulManager();
+});

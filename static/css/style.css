@@ -170,6 +170,147 @@ body {
     }
 }
 
+.admin-page {
+    background: #f4f6f8;
+    color: #24313d;
+}
+
+.admin-page .btn,
+.admin-page .form-control,
+.admin-page .form-select,
+.admin-page .table {
+    border-radius: 6px;
+    text-transform: none;
+    letter-spacing: normal;
+}
+
+.admin-page .btn:hover,
+.admin-page .table tbody tr:hover {
+    transform: none;
+}
+
+.admin-header {
+    align-items: center;
+    background: #fff;
+    border-bottom: 1px solid #dfe4e8;
+    display: flex;
+    justify-content: space-between;
+    padding: 1.25rem max(1rem, calc((100% - 1400px) / 2));
+}
+
+.admin-header h1,
+.admin-panel h2 {
+    font-size: 1.4rem;
+    margin: 0;
+}
+
+.admin-header p {
+    color: #65727e;
+    margin: .25rem 0 0;
+}
+
+.admin-shell {
+    margin: 2rem auto;
+    max-width: 1400px;
+    padding: 0 1rem;
+}
+
+.admin-panel {
+    background: #fff;
+    border: 1px solid #dfe4e8;
+    border-top: 0;
+    padding: 1.5rem;
+}
+
+.summary,
+.filter-grid,
+.add-student {
+    display: grid;
+    gap: .75rem;
+    margin-bottom: 1.25rem;
+}
+
+.summary {
+    grid-template-columns: repeat(4, 1fr);
+}
+
+.summary div {
+    background: #f7f9fa;
+    border: 1px solid #e3e7ea;
+    padding: 1rem;
+}
+
+.summary span,
+.summary strong {
+    display: block;
+}
+
+.summary strong {
+    font-size: 1.5rem;
+}
+
+.filter-grid {
+    grid-template-columns: 2fr repeat(3, 1fr) auto auto;
+}
+
+.add-student {
+    grid-template-columns: repeat(2, 1fr) 2fr .6fr 1fr 1.5fr auto;
+}
+
+.admin-table input,
+.admin-table select {
+    min-width: 90px;
+}
+
+.pagination-bar {
+    align-items: center;
+    display: flex;
+    gap: 1rem;
+    justify-content: flex-end;
+}
+
+.login-card {
+    background: #fff;
+    border: 1px solid #dfe4e8;
+    border-radius: 8px;
+    margin: 10vh auto;
+    max-width: 420px;
+    padding: 2rem;
+}
+
+@media (max-width: 900px) {
+    .admin-header {
+        align-items: flex-start;
+        gap: 1rem;
+    }
+
+    .summary {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .filter-grid,
+    .add-student {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+
+@media (max-width: 520px) {
+    .admin-header,
+    .summary,
+    .filter-grid,
+    .add-student {
+        display: block;
+    }
+
+    .admin-header > *,
+    .summary > *,
+    .filter-grid > *,
+    .add-student > * {
+        margin-bottom: .75rem;
+        width: 100%;
+    }
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
     width: 8px;

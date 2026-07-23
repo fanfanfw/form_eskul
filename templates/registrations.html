@@ -1,192 +1,108 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="id">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Data Registrasi Eskul</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <link href="https://cdn.datatables.net/1.11.5/css/dataTables.bootstrap5.min.css" rel="stylesheet">
-    <link href="{{ url_for('static', path='/css/style.css') }}" rel="stylesheet">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Admin Eskul</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', path='/css/style.css') }}" rel="stylesheet">
 </head>
-<body>
-    <div class="container-fluid">
-        <!-- Header -->
-        <nav class="navbar navbar-expand-lg navbar-dark bg-primary mb-4">
-            <div class="container">
-                <a class="navbar-brand" href="/">
-                    <i class="fas fa-graduation-cap me-2"></i>
-                    Form Eskul Siswa
-                </a>
-                <div class="navbar-nav ms-auto">
-                    <a class="nav-link" href="/">
-                        <i class="fas fa-plus me-1"></i>
-                        Form Pendaftaran
-                    </a>
-                </div>
-            </div>
-        </nav>
-
-        <div class="container-fluid">
-            <div class="row">
-                <div class="col-12">
-                    <!-- Card Utama -->
-                    <div class="card shadow-lg border-0">
-                        <div class="card-header bg-gradient-success text-white py-4">
-                            <h2 class="mb-0">
-                                <i class="fas fa-list me-2"></i>
-                                Data Registrasi Ekstrakurikuler
-                            </h2>
-                            <p class="mb-0 mt-2">Daftar siswa yang telah mendaftar ekstrakurikuler</p>
-                        </div>
-                        
-                        <div class="card-body p-4">
-                            <div class="row g-3 mb-4">
-                                <div class="col-lg-6">
-                                    <div class="card border-primary h-100">
-                                        <div class="card-body">
-                                            <h5 class="card-title"><i class="fas fa-file-excel me-2 text-success"></i>Import Data Siswa</h5>
-                                            <p class="text-muted mb-3">Upload Excel .xlsx dengan kolom NIS, NISN, Nama, JenisKelamin, Kelas.</p>
-                                            <input type="file" class="form-control mb-3" id="studentImportFile" accept=".xlsx">
-                                            <button class="btn btn-outline-primary me-2" onclick="previewStudentImport()">
-                                                <i class="fas fa-eye me-1"></i> Preview
-                                            </button>
-                                            <button class="btn btn-success" id="importStudentsBtn" onclick="importStudents()" disabled>
-                                                <i class="fas fa-upload me-1"></i> Import
-                                            </button>
-                                            <div id="importPreview" class="mt-3"></div>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="col-lg-6">
-                                    <div class="card border-warning h-100">
-                                        <div class="card-body">
-                                            <h5 class="card-title"><i class="fas fa-trophy me-2 text-warning"></i>Kelola Eskul</h5>
-                                            <div class="input-group mb-3">
-                                                <input type="text" class="form-control" id="newEskulName" placeholder="Nama eskul baru">
-                                                <button class="btn btn-warning" onclick="createEskul()">Tambah</button>
-                                            </div>
-                                            <div id="eskulManager" class="table-responsive"></div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="card border-secondary mb-4">
-                                <div class="card-body">
-                                    <h5 class="card-title"><i class="fas fa-users-cog me-2 text-secondary"></i>Kelola Siswa</h5>
-                                    <div class="row g-2 mb-3">
-                                        <div class="col-md-2">
-                                            <select class="form-select" id="studentClassFilter" onchange="loadStudentManager()">
-                                                <option value="">Semua kelas</option>
-                                            </select>
-                                        </div>
-                                        <div class="col-md-2"><input class="form-control" id="studentNis" placeholder="NIS"></div>
-                                        <div class="col-md-2"><input class="form-control" id="studentNisn" placeholder="NISN"></div>
-                                        <div class="col-md-3"><input class="form-control" id="studentNama" placeholder="Nama"></div>
-                                        <div class="col-md-1">
-                                            <select class="form-select" id="studentJk">
-                                                <option value="L">L</option>
-                                                <option value="P">P</option>
-                                            </select>
-                                        </div>
-                                        <div class="col-md-2"><input class="form-control" id="studentKelas" placeholder="Kelas"></div>
-                                    </div>
-                                    <button class="btn btn-secondary me-2" onclick="createStudent()">Tambah Siswa</button>
-                                    <button class="btn btn-danger" onclick="bulkDeleteStudents()">Hapus Terpilih</button>
-                                    <div id="studentManager" class="table-responsive mt-3"></div>
-                                </div>
-                            </div>
-
-                            <!-- Loading -->
-                            <div id="loadingSpinner" class="text-center">
-                                <div class="spinner-border text-primary" role="status">
-                                    <span class="visually-hidden">Loading...</span>
-                                </div>
-                                <p class="mt-2">Memuat data registrasi...</p>
-                            </div>
-
-                            <!-- Tabel Data -->
-                            <div id="tableContainer" style="display: none;">
-                                <!-- Export Buttons -->
-                                <div class="mb-3">
-                                    <button class="btn btn-success me-2" id="exportBtn" onclick="exportToCSV()">
-                                        <i class="fas fa-file-csv me-1"></i> Export CSV
-                                    </button>
-                                    <button class="btn btn-primary me-2" id="printBtn" onclick="printTable()">
-                                        <i class="fas fa-print me-1"></i> Print
-                                    </button>
-                                    <button class="btn btn-info" id="refreshBtn" onclick="refreshData()">
-                                        <i class="fas fa-sync-alt me-1"></i> Refresh
-                                    </button>
-                                </div>
-                                
-                                <div class="table-responsive">
-                                    <table id="registrationTable" class="table table-striped table-hover">
-                                        <thead class="table-dark">
-                                            <tr>
-                                                <th>NIS</th>
-                                                <th>NISN</th>
-                                                <th>Nama Siswa</th>
-                                                <th>Jenis Kelamin</th>
-                                                <th>Kelas</th>
-                                                <th>Ekstrakurikuler</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            <!-- Data akan dimuat via JavaScript -->
-                                        </tbody>
-                                    </table>
-                                </div>
-
-                                <!-- Summary Card -->
-                                <div class="row mt-4">
-                                    <div class="col-md-3">
-                                        <div class="card bg-info text-white">
-                                            <div class="card-body text-center">
-                                                <h5 class="card-title">Total Siswa</h5>
-                                                <h2 id="totalSiswa">-</h2>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-3">
-                                        <div class="card bg-success text-white">
-                                            <div class="card-body text-center">
-                                                <h5 class="card-title">Sudah Daftar</h5>
-                                                <h2 id="sudahDaftar">-</h2>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-3">
-                                        <div class="card bg-warning text-white">
-                                            <div class="card-body text-center">
-                                                <h5 class="card-title">Belum Daftar</h5>
-                                                <h2 id="belumDaftar">-</h2>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-3">
-                                        <div class="card bg-primary text-white">
-                                            <div class="card-body text-center">
-                                                <h5 class="card-title">Total Kelas</h5>
-                                                <h2 id="totalKelas">-</h2>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
+<body class="admin-page">
+  {% if login %}
+  <main class="login-card">
+    <h1>Admin Eskul</h1>
+    <p>Masukkan PIN untuk membuka dashboard.</p>
+    {% if login_error %}
+    <div class="alert alert-danger" role="alert">{{ login_error }}</div>
+    {% endif %}
+    {% if not admin_configured %}
+    <div class="alert alert-warning" role="alert">Akses admin belum dikonfigurasi.</div>
+    {% endif %}
+    <form method="post" action="/registrations/login">
+      <label class="form-label" for="pin">PIN admin</label>
+      <input class="form-control" id="pin" name="pin" type="password" inputmode="numeric" autocomplete="current-password" required>
+      <button class="btn btn-primary mt-3" type="submit">Masuk</button>
+    </form>
+    <a href="/" class="d-block mt-3">Kembali ke halaman guru</a>
+  </main>
+  {% else %}
+  <header class="admin-header">
+    <div>
+      <h1>Administrasi Eskul</h1>
+      <p>Data siswa dan pilihan ekstrakurikuler</p>
     </div>
-
-    <!-- Scripts -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-    <script src="https://cdn.datatables.net/1.11.5/js/jquery.dataTables.min.js"></script>
-    <script src="https://cdn.datatables.net/1.11.5/js/dataTables.bootstrap5.min.js"></script>
-    <script src="{{ url_for('static', path='/js/registrations_simple.js') }}"></script>
+    <div>
+      <a href="/" class="btn btn-outline-secondary">Halaman guru</a>
+      <form action="/registrations/logout" method="post" class="d-inline">
+        <button class="btn btn-outline-danger" type="submit">Keluar</button>
+      </form>
+    </div>
+  </header>
+  <main class="admin-shell">
+    <ul class="nav nav-tabs" role="tablist">
+      <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#students" type="button">Data Siswa</button></li>
+      <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#import" type="button">Import</button></li>
+      <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#eskul" type="button">Kelola Eskul</button></li>
+    </ul>
+    <div class="tab-content admin-panel">
+      <section class="tab-pane fade show active" id="students">
+        <div class="summary">
+          <div><span>Total</span><strong id="totalSiswa">0</strong></div>
+          <div><span>Sudah memilih</span><strong id="sudahDaftar">0</strong></div>
+          <div><span>Belum memilih</span><strong id="belumDaftar">0</strong></div>
+          <div><span>Kelas</span><strong id="totalKelas">0</strong></div>
+        </div>
+        <form id="filters" class="filter-grid">
+          <label>Pencarian<input class="form-control" id="search" placeholder="Nama, NIS, atau NISN"></label>
+          <label>Kelas<select class="form-select" id="kelasFilter"><option value="">Semua kelas</option></select></label>
+          <label>Eskul<select class="form-select" id="eskulFilter"><option value="">Semua eskul</option></select></label>
+          <label>Status<select class="form-select" id="statusFilter"><option value="">Semua status</option><option value="assigned">Sudah memilih</option><option value="unassigned">Belum memilih</option></select></label>
+          <button class="btn btn-primary align-self-end" type="submit">Terapkan</button>
+          <a id="exportBtn" class="btn btn-outline-success align-self-end">Export CSV</a>
+        </form>
+        <div class="add-student">
+          <input class="form-control" id="newNis" aria-label="NIS baru" placeholder="NIS">
+          <input class="form-control" id="newNisn" aria-label="NISN baru" placeholder="NISN">
+          <input class="form-control" id="newNama" aria-label="Nama baru" placeholder="Nama">
+          <select class="form-select" id="newJk" aria-label="Jenis kelamin"><option>L</option><option>P</option></select>
+          <input class="form-control" id="newKelas" aria-label="Kelas baru" placeholder="Kelas">
+          <select class="form-select" id="newEskul" aria-label="Eskul baru"></select>
+          <button class="btn btn-primary" type="button" data-action="create-student">Tambah</button>
+        </div>
+        <button class="btn btn-outline-danger mb-3" type="button" data-action="bulk-delete-students">Hapus terpilih</button>
+        <div class="table-responsive">
+          <table class="table admin-table">
+            <thead><tr><th><input id="checkAll" type="checkbox" aria-label="Pilih semua halaman"></th><th>NIS</th><th>NISN</th><th>Nama</th><th>JK</th><th>Kelas</th><th>Eskul</th><th>Aksi</th></tr></thead>
+            <tbody id="studentRows"></tbody>
+          </table>
+        </div>
+        <nav><ul class="pagination" id="pagination"></ul></nav>
+      </section>
+      <section class="tab-pane fade" id="import">
+        <h2>Import data siswa</h2>
+        <p>File .xlsx wajib memiliki kolom NIS, NISN, Nama, JenisKelamin, Kelas.</p>
+        <label class="form-label" for="studentImportFile">File Excel</label>
+        <input class="form-control" type="file" id="studentImportFile" accept=".xlsx">
+        <div class="mt-3">
+          <button class="btn btn-outline-primary" type="button" data-action="preview-import">Preview</button>
+          <button class="btn btn-primary" id="importStudentsBtn" type="button" data-action="import-students" disabled>Import</button>
+        </div>
+        <div id="importPreview" class="mt-3"></div>
+      </section>
+      <section class="tab-pane fade" id="eskul">
+        <h2>Kelola Eskul</h2>
+        <div class="input-group mb-4">
+          <label class="visually-hidden" for="newEskulName">Nama eskul baru</label>
+          <input class="form-control" id="newEskulName" placeholder="Nama eskul baru">
+          <button class="btn btn-primary" type="button" data-action="create-eskul">Tambah</button>
+        </div>
+        <div id="eskulManager" class="table-responsive"></div>
+      </section>
+    </div>
+  </main>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <script src="{{ url_for('static', path='/js/registrations_simple.js') }}"></script>
+  {% endif %}
 </body>
 </html>
