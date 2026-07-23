@@ -1,5 +1,6 @@
 let page = 1;
 let pages = 1;
+let pageSize = 25;
 let options = { kelas: [], eskul: [] };
 
 const $ = id => document.getElementById(id);
@@ -29,7 +30,7 @@ function params(includePage = true) {
   ].forEach(([key, value]) => value && query.set(key, value));
   if (includePage) {
     query.set('page', page);
-    query.set('page_size', 25);
+    query.set('page_size', pageSize);
   }
   return query;
 }
@@ -259,6 +260,11 @@ document.addEventListener('DOMContentLoaded', () => {
     event.preventDefault();
     $('kelasFilter').dataset.value = $('kelasFilter').value;
     $('eskulFilter').dataset.value = $('eskulFilter').value;
+    page = 1;
+    loadStudents();
+  });
+  $('pageSize').addEventListener('change', event => {
+    pageSize = Number(event.target.value);
     page = 1;
     loadStudents();
   });
