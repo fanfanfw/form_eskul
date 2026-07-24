@@ -11,50 +11,100 @@ Website sederhana untuk mengisi form ekstrakurikuler siswa menggunakan FastAPI d
 - 🔍 **Pencarian Data**: Filter dan cari data registrasi
 - 📄 **Export Data**: Export ke CSV dan print
 
-## 🚀 Quick Start
+## 🚀 Quick Start dengan Docker Compose
 
-### 1. Persiapan Database
+### Prasyarat
 
-Pastikan PostgreSQL sudah terinstall dan berjalan. Kemudian buat database:
+Install Docker dan Docker Compose. PostgreSQL tidak perlu diinstall manual karena sudah tersedia di `compose.yaml`.
 
-```sql
-CREATE DATABASE eskul_db;
-```
-
-### 2. Konfigurasi Database
-
-Edit file `config.py` atau `main.py` dan sesuaikan konfigurasi database:
-
-```python
-DB_CONFIG = {
-    "host": "localhost",
-    "database": "eskul_db",
-    "user": "your_username",
-    "password": "your_password"
-}
-```
-
-### 3. Install Dependencies & Setup Database
+### Menjalankan aplikasi
 
 ```bash
-# Aktifkan virtual environment
-source enveskul/bin/activate
-
-# Install pandas untuk import data
-pip install pandas
-
-# Setup database dan import data
-python setup_database.py
+git clone <url-repository>
+cd form_eskul
+docker compose up --build -d
 ```
 
-### 4. Jalankan Aplikasi
+Compose akan otomatis:
+
+1. Menjalankan PostgreSQL 16.
+2. Menunggu database siap.
+3. Membuat tabel dan indeks melalui `migrate_empty.py`.
+4. Menjalankan aplikasi FastAPI.
+5. Menyimpan database dalam volume `postgres_data`.
+
+Buka aplikasi:
+
+- Halaman guru: **http://localhost:8000**
+- Halaman admin: **http://localhost:8000/registrations**
+- PIN admin lokal bawaan: `112231`
+
+### Konfigurasi lokal
+
+Aplikasi dapat langsung berjalan tanpa `.env`. Untuk mengganti konfigurasi bawaan, buat file `.env` di root project:
+
+```env
+APP_PORT=8000
+POSTGRES_DB=form_eskul
+POSTGRES_USER=form_eskul
+POSTGRES_PASSWORD=ganti-password-database
+ADMIN_PIN=112231
+SESSION_SECRET=ganti-dengan-string-acak-panjang
+```
+
+Buat session secret dengan:
 
 ```bash
-# Jalankan server FastAPI
-python main.py
+openssl rand -hex 32
 ```
 
-Buka browser ke: **http://localhost:8000**
+File `.env` sudah diabaikan Git. Jangan commit password, PIN, atau session secret.
+
+Setelah mengubah `.env`, terapkan ulang container:
+
+```bash
+docker compose up --build -d
+```
+
+### Mengisi data awal
+
+Database lokal dimulai dalam keadaan kosong. Masuk ke halaman admin, buka tab **Import**, lalu upload file `.xlsx`.
+
+Importer mendukung banyak sheet dan posisi header dinamis. Kolom wajib:
+
+- Nama
+- Jenis kelamin (`L` atau `P`)
+- Kelas
+
+NIS dan NISN bersifat opsional. Jika NIS kosong, aplikasi membuat ID stabil secara otomatis. Gunakan **Preview** sebelum menjalankan import.
+
+### Operasional Compose
+
+Lihat status container:
+
+```bash
+docker compose ps
+```
+
+Lihat log aplikasi:
+
+```bash
+docker compose logs -f app
+```
+
+Hentikan aplikasi tanpa menghapus database:
+
+```bash
+docker compose down
+```
+
+Hapus aplikasi beserta seluruh data database lokal:
+
+```bash
+docker compose down -v
+```
+
+Perintah terakhir bersifat destruktif dan tidak dapat membatalkan penghapusan data.
 
 ## 📁 Struktur Project
 

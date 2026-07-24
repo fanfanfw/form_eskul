@@ -8,4 +8,5 @@ __pycache__/
 *.db
 
 config.py
+.env
 .playwright-mcp/
