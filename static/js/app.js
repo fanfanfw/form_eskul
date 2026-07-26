@@ -26,6 +26,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const closeButton = document.createElement('button');
         closeButton.type = 'button';
         closeButton.className = 'btn-close';
+        closeButton.setAttribute('aria-label', 'Tutup');
         closeButton.dataset.bsDismiss = 'alert';
         alertDiv.append(icon, document.createTextNode(message), closeButton);
         alertContainer.appendChild(alertDiv);
@@ -213,12 +214,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 eskulSelect.disabled = true;
                 submitBtn.disabled = true;
                 
-                // Add success animation
-                document.querySelector('.card').style.transform = 'scale(1.02)';
-                setTimeout(() => {
-                    document.querySelector('.card').style.transform = 'scale(1)';
-                }, 300);
-                
             } else {
                 showAlert(result.detail || 'Terjadi kesalahan saat menyimpan data', 'danger');
             }
@@ -233,23 +228,6 @@ document.addEventListener('DOMContentLoaded', function() {
             updateSubmitButton();
         }
     }
-
-    // Add smooth transitions
-    function addSmoothTransitions() {
-        const selects = document.querySelectorAll('select');
-        selects.forEach(select => {
-            select.addEventListener('focus', function() {
-                this.style.transform = 'scale(1.02)';
-            });
-            
-            select.addEventListener('blur', function() {
-                this.style.transform = 'scale(1)';
-            });
-        });
-    }
-
-    // Initialize smooth transitions
-    addSmoothTransitions();
 
     // Add keyboard shortcuts
     document.addEventListener('keydown', function(e) {

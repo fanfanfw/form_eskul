@@ -62,19 +62,28 @@ async function loadStudents() {
     $('newEskul').innerHTML = eskulOptions(null, 'Belum memilih', $('newKelas').value);
     $('studentRows').innerHTML = data.items.map(student => `
       <tr>
-        <td><input class="student-check" type="checkbox" value="${student.id}" aria-label="Pilih ${esc(student.nama)}"></td>
-        <td><input class="form-control form-control-sm" id="nis-${student.id}" value="${esc(student.nis)}" aria-label="NIS ${esc(student.nama)}"></td>
-        <td><input class="form-control form-control-sm" id="nisn-${student.id}" value="${esc(student.nisn)}" aria-label="NISN ${esc(student.nama)}"></td>
-        <td><input class="form-control form-control-sm" id="nama-${student.id}" value="${esc(student.nama)}" aria-label="Nama"></td>
-        <td><select class="form-select form-select-sm" id="jk-${student.id}" aria-label="Jenis kelamin"><option ${student.jeniskelamin === 'L' ? 'selected' : ''}>L</option><option ${student.jeniskelamin === 'P' ? 'selected' : ''}>P</option><option value="-" ${student.jeniskelamin === '-' ? 'selected' : ''}>Tidak diketahui</option></select></td>
-        <td><input class="form-control form-control-sm" id="kelas-${student.id}" value="${esc(student.kelas)}" aria-label="Kelas"></td>
-        <td><select class="form-select form-select-sm" id="eskul-${student.id}" aria-label="Eskul">${eskulOptions(student.eskul, 'Belum memilih', student.kelas)}</select></td>
-        <td><button class="btn btn-sm btn-primary" type="button" data-action="update-student" data-id="${student.id}">Simpan</button> <button class="btn btn-sm btn-outline-danger" type="button" data-action="delete-student" data-id="${student.id}">Hapus</button></td>
+        <td data-label="Pilih"><input class="student-check" type="checkbox" value="${student.id}" aria-label="Pilih ${esc(student.nama)}"></td>
+        <td data-label="NIS"><input class="form-control form-control-sm" id="nis-${student.id}" value="${esc(student.nis)}" aria-label="NIS ${esc(student.nama)}"></td>
+        <td data-label="NISN"><input class="form-control form-control-sm" id="nisn-${student.id}" value="${esc(student.nisn)}" aria-label="NISN ${esc(student.nama)}"></td>
+        <td data-label="Nama"><input class="form-control form-control-sm" id="nama-${student.id}" value="${esc(student.nama)}" aria-label="Nama"></td>
+        <td data-label="JK"><select class="form-select form-select-sm" id="jk-${student.id}" aria-label="Jenis kelamin"><option ${student.jeniskelamin === 'L' ? 'selected' : ''}>L</option><option ${student.jeniskelamin === 'P' ? 'selected' : ''}>P</option><option value="-" ${student.jeniskelamin === '-' ? 'selected' : ''}>Tidak diketahui</option></select></td>
+        <td data-label="Kelas"><input class="form-control form-control-sm" id="kelas-${student.id}" value="${esc(student.kelas)}" aria-label="Kelas"></td>
+        <td data-label="Eskul"><select class="form-select form-select-sm" id="eskul-${student.id}" aria-label="Eskul">${eskulOptions(student.eskul, 'Belum memilih', student.kelas)}</select></td>
+        <td data-label="Aksi"><button class="btn btn-sm btn-primary" type="button" data-action="update-student" data-id="${student.id}">Simpan</button> <button class="btn btn-sm btn-outline-danger" type="button" data-action="delete-student" data-id="${student.id}">Hapus</button></td>
       </tr>
     `).join('') || '<tr><td colspan="8">Tidak ada data.</td></tr>';
-    $('pagination').innerHTML = Array.from({ length: pages }, (_, index) => index + 1).map(number => `
-      <li class="page-item ${number === page ? 'active' : ''}"><button class="page-link" type="button" data-action="go-page" data-page="${number}">${number}</button></li>
-    `).join('');
+    const nearby = new Set([1, pages, page - 2, page - 1, page, page + 1, page + 2].filter(number => number >= 1 && number <= pages));
+    const numbers = [...nearby].sort((a, b) => a - b);
+    const items = [];
+    items.push(`<li class="page-item ${page === 1 ? 'disabled' : ''}"><button class="page-link" type="button" data-action="go-page" data-page="1" aria-label="Halaman pertama" ${page === 1 ? 'disabled' : ''}>«</button></li>`);
+    items.push(`<li class="page-item ${page === 1 ? 'disabled' : ''}"><button class="page-link" type="button" data-action="go-page" data-page="${page - 1}" aria-label="Halaman sebelumnya" ${page === 1 ? 'disabled' : ''}>‹</button></li>`);
+    numbers.forEach((number, index) => {
+      if (index && number - numbers[index - 1] > 1) items.push('<li class="page-item disabled"><span class="page-link" aria-hidden="true">…</span></li>');
+      items.push(`<li class="page-item ${number === page ? 'active' : ''}"><button class="page-link" type="button" data-action="go-page" data-page="${number}" aria-label="Halaman ${number}" ${number === page ? 'aria-current="page"' : ''}>${number}</button></li>`);
+    });
+    items.push(`<li class="page-item ${page === pages ? 'disabled' : ''}"><button class="page-link" type="button" data-action="go-page" data-page="${page + 1}" aria-label="Halaman berikutnya" ${page === pages ? 'disabled' : ''}>›</button></li>`);
+    items.push(`<li class="page-item ${page === pages ? 'disabled' : ''}"><button class="page-link" type="button" data-action="go-page" data-page="${pages}" aria-label="Halaman terakhir" ${page === pages ? 'disabled' : ''}>»</button></li>`);
+    $('pagination').innerHTML = items.join('');
     $('exportBtn').href = '/api/registrations/export?' + params(false);
     $('checkAll').checked = false;
   } catch (error) {
@@ -157,10 +166,10 @@ async function loadEskulManager() {
         <thead><tr><th>Nama</th><th>Minimum kelas</th><th>Siswa</th><th>Aksi</th></tr></thead>
         <tbody>${data.eskul.map(eskul => `
           <tr>
-            <td><input class="form-control" id="manage-eskul-${eskul.id}" value="${esc(eskul.nama_eskul)}"></td>
-            <td><select class="form-select" id="manage-minimal-${eskul.id}">${[1,2,3,4,5,6].map(grade => `<option ${grade === eskul.minimal_kelas ? 'selected' : ''}>${grade}</option>`).join('')}</select></td>
-            <td>${eskul.siswa_count}</td>
-            <td><button class="btn btn-sm btn-primary" type="button" data-action="save-eskul" data-id="${eskul.id}">Simpan</button> <button class="btn btn-sm btn-outline-danger" type="button" data-action="delete-eskul" data-id="${eskul.id}" data-count="${eskul.siswa_count}">Hapus</button></td>
+            <td data-label="Nama"><input class="form-control" id="manage-eskul-${eskul.id}" value="${esc(eskul.nama_eskul)}" aria-label="Nama eskul"></td>
+            <td data-label="Minimum kelas"><select class="form-select" id="manage-minimal-${eskul.id}" aria-label="Minimum kelas">${[1,2,3,4,5,6].map(grade => `<option ${grade === eskul.minimal_kelas ? 'selected' : ''}>${grade}</option>`).join('')}</select></td>
+            <td data-label="Siswa">${eskul.siswa_count}</td>
+            <td data-label="Aksi"><button class="btn btn-sm btn-primary" type="button" data-action="save-eskul" data-id="${eskul.id}">Simpan</button> <button class="btn btn-sm btn-outline-danger" type="button" data-action="delete-eskul" data-id="${eskul.id}" data-count="${eskul.siswa_count}">Hapus</button></td>
           </tr>
         `).join('')}</tbody>
       </table>
