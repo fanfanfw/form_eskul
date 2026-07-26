@@ -55,9 +55,16 @@ async def protect_admin(request: Request, call_next):
     protected = path == "/registrations" or any(path == prefix or path.startswith(prefix + "/") for prefix in ADMIN_PATHS) or (path.startswith("/api/students/") and path.endswith(("/update",))) or (path.startswith("/api/students/") and request.method == "DELETE") or (path.startswith("/api/eskul/") and path != "/api/eskul")
     if protected and not request.session.get("admin"):
         if path == "/registrations":
-            return templates.TemplateResponse("registrations.html", {"request": request, "login": True, "admin_configured": bool(ADMIN_PIN)}, status_code=401)
-        return HTMLResponse("Admin authentication required", status_code=401)
-    return await call_next(request)
+            response = templates.TemplateResponse("registrations.html", {"request": request, "login": True, "admin_configured": bool(ADMIN_PIN)}, status_code=401)
+        else:
+            response = HTMLResponse("Admin authentication required", status_code=401)
+    else:
+        response = await call_next(request)
+    if path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-cache, must-revalidate"
+    elif response.headers.get("content-type", "").startswith("text/html"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
 
 app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, same_site="lax", https_only=os.getenv("SESSION_HTTPS_ONLY", "true").lower() == "true")
 
