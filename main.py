@@ -11,6 +11,7 @@ import csv
 import hmac
 import re
 import hashlib
+import uuid
 import zipfile
 from collections import Counter
 from typing import List
@@ -120,8 +121,8 @@ def validate_assignment(cursor, kelas, eskul_id):
 def clean_student(nis, nisn, nama, jeniskelamin, kelas):
     values = [str(value).strip() for value in (nis, nisn, nama, jeniskelamin, kelas)]
     values[3] = values[3].upper()
-    if not values[0] or not values[2] or not values[4]:
-        raise HTTPException(status_code=400, detail="NIS, nama, dan kelas wajib diisi")
+    if not values[2] or not values[4]:
+        raise HTTPException(status_code=400, detail="Nama dan kelas wajib diisi")
     if values[3] not in ("L", "P", "-"):
         raise HTTPException(status_code=400, detail="Jenis kelamin harus L, P, atau -")
     limits = (20, 20, 255, 1, 15)
@@ -408,8 +409,8 @@ async def export_registrations(search:str="",kelas:str="",eskul_id:int|None=None
     return StreamingResponse(iter([output.getvalue()]),media_type="text/csv; charset=utf-8",headers={"Content-Disposition":"attachment; filename=registrasi_eskul.csv"})
 
 @app.post("/api/students/create")
-async def create_student(nis:str=Form(...),nisn:str=Form(...),nama:str=Form(...),jeniskelamin:str=Form(...),kelas:str=Form(...),eskul_id:str=Form("")):
-    values=clean_student(nis,nisn,nama,jeniskelamin,kelas); selected_eskul=optional_eskul_id(eskul_id); conn=db_or_500()
+async def create_student(nis:str=Form(""),nisn:str=Form(""),nama:str=Form(...),jeniskelamin:str=Form(...),kelas:str=Form(...),eskul_id:str=Form("")):
+    values=clean_student(nis,nisn,nama,jeniskelamin,kelas); values[0]=values[0] or f"TMP-{uuid.uuid4().hex[:16]}"; selected_eskul=optional_eskul_id(eskul_id); conn=db_or_500()
     try:
         cursor=conn.cursor(); validate_assignment(cursor,values[4],selected_eskul); cursor.execute("INSERT INTO siswa (nis,nisn,nama,jeniskelamin,kelas,eskul) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id",(*values,selected_eskul)); result=cursor.fetchone(); conn.commit(); return result
     except psycopg2.IntegrityError:
@@ -417,11 +418,13 @@ async def create_student(nis:str=Form(...),nisn:str=Form(...),nama:str=Form(...)
     finally: conn.close()
 
 @app.post("/api/students/{student_id}/update")
-async def update_student(student_id:int,nis:str=Form(...),nisn:str=Form(...),nama:str=Form(...),jeniskelamin:str=Form(...),kelas:str=Form(...),eskul_id:str=Form("")):
+async def update_student(student_id:int,nis:str=Form(""),nisn:str=Form(""),nama:str=Form(...),jeniskelamin:str=Form(...),kelas:str=Form(...),eskul_id:str=Form("")):
     values=clean_student(nis,nisn,nama,jeniskelamin,kelas); selected_eskul=optional_eskul_id(eskul_id); conn=db_or_500()
     try:
-        cursor=conn.cursor(); validate_assignment(cursor,values[4],selected_eskul); cursor.execute("UPDATE siswa SET nis=%s,nisn=%s,nama=%s,jeniskelamin=%s,kelas=%s,eskul=%s WHERE id=%s",(*values,selected_eskul,student_id))
-        if not cursor.rowcount: raise HTTPException(404,"Siswa tidak ditemukan")
+        cursor=conn.cursor(); cursor.execute("SELECT nis FROM siswa WHERE id=%s FOR UPDATE",(student_id,)); existing=cursor.fetchone()
+        if not existing: raise HTTPException(404,"Siswa tidak ditemukan")
+        values[0]=values[0] or existing["nis"]
+        validate_assignment(cursor,values[4],selected_eskul); cursor.execute("UPDATE siswa SET nis=%s,nisn=%s,nama=%s,jeniskelamin=%s,kelas=%s,eskul=%s WHERE id=%s",(*values,selected_eskul,student_id))
         conn.commit(); return {"success":True}
     except psycopg2.IntegrityError:
         conn.rollback(); raise HTTPException(400,"NIS sudah ada atau eskul tidak valid")
